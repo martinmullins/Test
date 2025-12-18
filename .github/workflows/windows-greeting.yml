@@ -6,9 +6,20 @@ on:
       - main
 
 jobs:
-  greet:
+  download-xenia:
     runs-on: windows-latest
 
     steps:
-    - name: Say Hello
-      run: echo "Hello, World!"
+    - name: Download latest Xenia release
+      uses: actions/download-artifact@v3
+      with:
+        name: xenia-master.zip
+        path: ./xenia
+
+    - name: Unzip Xenia
+      run: |
+        mkdir xenia-extracted
+        tar -xf ./xenia/xenia-master.zip -C xenia-extracted
+
+    - name: List contents
+      run: dir xenia-extracted
