@@ -11,3 +11,44 @@ jobs:
         uses: actions/checkout@v3
       - name: Run Script
         run: echo "Hello, Windows!"
+      - name: Download latest stable Xenia release
+        shell: pwsh
+        run: |
+          # Get the latest stable release from Xenia Project
+          $releases = Invoke-RestMethod -Uri "https://api.github.com/repos/xenia-project/release-builds-windows/releases"
+          $stableRelease = $releases | Where-Object { $_.tag_name -like "*stable*" } | Select-Object -First 1
+
+          if (-not $stableRelease) {
+            Write-Host "No stable release found, using latest release instead"
+            $stableRelease = $releases | Select-Object -First 1
+          }
+
+          Write-Host "Found release: $($stableRelease.tag_name)"
+
+          # Find the ZIP asset
+          $zipAsset = $stableRelease.assets | Where-Object { $_.name -like "*.zip" } | Select-Object -First 1
+
+          if (-not $zipAsset) {
+            Write-Error "No ZIP file found in the release assets"
+            exit 1
+          }
+
+          Write-Host "Downloading: $($zipAsset.name)"
+          Write-Host "Download URL: $($zipAsset.browser_download_url)"
+
+          # Download the ZIP file
+          Invoke-WebRequest -Uri $zipAsset.browser_download_url -OutFile "xenia-release.zip"
+          Write-Host "Download completed successfully"
+      - name: Extract Xenia release
+        shell: pwsh
+        run: |
+          # Extract the ZIP file
+          Write-Host "Extracting xenia-release.zip..."
+          Expand-Archive -Path "xenia-release.zip" -DestinationPath "xenia-extracted" -Force
+          Write-Host "Extraction completed"
+      - name: List extracted contents
+        shell: pwsh
+        run: |
+          # List the contents of the extracted folder
+          Write-Host "Contents of extracted Xenia release:"
+          Get-ChildItem -Path "xenia-extracted" -Recurse | Select-Object FullName, Length | Format-Table -AutoSize
