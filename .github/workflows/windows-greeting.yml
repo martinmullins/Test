@@ -59,7 +59,8 @@ jobs:
           Get-ChildItem -Path "xenia-extracted" -Recurse | Select-Object FullName, Length | Format-Table -AutoSize
           
           # Find xenia.exe in the extracted directory
-          Write-Host "`n=== Searching for xenia.exe ==="
+          Write-Host ""
+          Write-Host "=== Searching for xenia.exe ==="
           $xeniaExe = Get-ChildItem -Path "xenia-extracted" -Recurse -Filter "xenia.exe" | Select-Object -First 1
           
           if ($xeniaExe) {
@@ -67,7 +68,7 @@ jobs:
             # Store the path for use in subsequent steps
             $xeniaPath = $xeniaExe.FullName
             # Set as environment variable for next steps
-            Write-Output "XENIA_EXE_PATH=$xeniaPath" >> $env:GITHUB_ENV
+            echo "XENIA_EXE_PATH=$xeniaPath" >> $env:GITHUB_ENV
           } else {
             Write-Error "xenia.exe not found in extracted directory"
             exit 1
