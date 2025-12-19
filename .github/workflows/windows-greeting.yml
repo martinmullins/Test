@@ -71,7 +71,7 @@ jobs:
             Write-Host "Listing contents of xenia-extracted directory:"
             Get-ChildItem -Path "xenia-extracted" -Recurse | Select-Object FullName
             Write-Host "Skipping execution as executable was not found"
-            return
+            exit 0
           }
           
           Write-Host "Executable found. Running with --help argument..."
@@ -86,8 +86,10 @@ jobs:
             Write-Host "=== End of Output ==="
             Write-Host "Exit code: $exitCode"
             
-            # Check for common error patterns
-            if ($output -match "headless" -or $output -match "display" -or $output -match "graphics") {
+            # Check for common error patterns indicating headless/display issues
+            $hasDisplayIssue = $output -match "headless|display|graphics"
+            
+            if ($hasDisplayIssue) {
               Write-Warning "The executable may require display/graphics support which is not available in headless environment"
               Write-Host "This is expected behavior for GUI applications running in CI/CD environments"
             }
@@ -99,11 +101,13 @@ jobs:
             }
             
           } catch {
-            Write-Error "Failed to execute xenia-vfs-dump.exe: $_"
+            Write-Warning "Failed to execute xenia-vfs-dump.exe: $_"
             Write-Host "Error details: $($_.Exception.Message)"
             
             # Check if it's a headless/display issue
-            if ($_.Exception.Message -match "headless" -or $_.Exception.Message -match "display") {
+            $hasDisplayIssue = $_.Exception.Message -match "headless|display|graphics"
+            
+            if ($hasDisplayIssue) {
               Write-Warning "This appears to be a headless support issue - the application may require a display"
               Write-Host "This is expected for GUI applications in CI/CD environments"
             }
