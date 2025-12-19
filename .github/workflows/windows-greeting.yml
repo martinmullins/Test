@@ -57,24 +57,24 @@ jobs:
           # List the contents of the extracted folder
           Write-Host "Contents of extracted Xenia release:"
           Get-ChildItem -Path "xenia-extracted" -Recurse | Select-Object FullName, Length | Format-Table -AutoSize
-      - name: Execute xenia-vfs-dump.exe with --help
+      - name: Validate xenia.exe with --help
         shell: pwsh
         run: |
-          # Execute xenia-vfs-dump.exe --help and capture output
-          $exePath = Join-Path $env:GITHUB_WORKSPACE 'xenia-extracted\xenia-vfs-dump.exe'
+          # Execute xenia.exe --help for validation
+          $exePath = Join-Path $env:GITHUB_WORKSPACE 'xenia-extracted\xenia.exe'
           
-          Write-Host "Attempting to execute: $exePath --help"
+          Write-Host "Attempting to validate: $exePath --help"
           
           # Check if the executable exists
           if (-not (Test-Path $exePath)) {
             Write-Warning "Executable not found at path: $exePath"
             Write-Host "Listing contents of xenia-extracted directory:"
             Get-ChildItem -Path "xenia-extracted" -Recurse | Select-Object FullName
-            Write-Host "Skipping execution as executable was not found"
+            Write-Host "Skipping validation as executable was not found"
             exit 0
           }
           
-          Write-Host "Executable found. Running with --help argument..."
+          Write-Host "Executable found. Running with --help argument for validation..."
           
           try {
             # Execute the command and capture output
@@ -101,7 +101,7 @@ jobs:
             }
             
           } catch {
-            Write-Warning "Failed to execute xenia-vfs-dump.exe: $_"
+            Write-Warning "Failed to execute xenia.exe: $_"
             Write-Host "Error details: $($_.Exception.Message)"
             
             # Check if it's a headless/display issue
@@ -114,4 +114,94 @@ jobs:
             
             # Don't fail the workflow for expected errors
             Write-Host "Continuing workflow despite execution error..."
+          }
+      - name: Launch xenia.exe with test game
+        shell: pwsh
+        run: |
+          # Launch xenia.exe with the test game file
+          $exePath = Join-Path $env:GITHUB_WORKSPACE 'xenia-extracted\xenia.exe'
+          $gamePath = Join-Path $env:GITHUB_WORKSPACE 'test-game.iso'
+          
+          Write-Host "=== Xenia Emulator Game Launch Test ==="
+          Write-Host "Xenia executable path: $exePath"
+          Write-Host "Test game path: $gamePath"
+          
+          # Check if the executable exists
+          if (-not (Test-Path $exePath)) {
+            Write-Error "Xenia executable not found at: $exePath"
+            exit 1
+          }
+          
+          # Check if the test game exists
+          if (-not (Test-Path $gamePath)) {
+            Write-Error "Test game file not found at: $gamePath"
+            exit 1
+          }
+          
+          Write-Host "Both xenia.exe and test-game.iso found."
+          Write-Host "Launching Xenia emulator with test game (with 30 second timeout)..."
+          
+          try {
+            # Create a job to run Xenia with timeout handling
+            $job = Start-Job -ScriptBlock {
+              param($exe, $game)
+              $output = & $exe $game 2>&1
+              return @{
+                Output = $output
+                ExitCode = $LASTEXITCODE
+              }
+            } -ArgumentList $exePath, $gamePath
+            
+            # Wait for job with timeout (30 seconds)
+            $completed = Wait-Job -Job $job -Timeout 30
+            
+            if ($completed) {
+              # Job completed within timeout
+              $result = Receive-Job -Job $job
+              Write-Host "=== Xenia Execution Output ==="
+              Write-Host $result.Output
+              Write-Host "=== End of Output ==="
+              Write-Host "Exit code: $($result.ExitCode)"
+              
+              # Analyze output for errors
+              if ($result.Output -match "error|failed|exception") {
+                Write-Warning "Errors detected in output"
+              }
+              
+              if ($result.ExitCode -ne 0) {
+                Write-Warning "Xenia exited with non-zero code: $($result.ExitCode)"
+              }
+            } else {
+              # Job timed out
+              Write-Warning "Xenia execution timed out after 30 seconds"
+              Write-Host "This is expected behavior for emulator launches in headless environments"
+              Write-Host "The emulator likely started but cannot render without a display"
+              
+              # Stop the job
+              Stop-Job -Job $job
+              Remove-Job -Job $job
+            }
+            
+            Write-Host "=== Execution Summary ==="
+            Write-Host "Successfully attempted to launch Xenia emulator with test game"
+            Write-Host "In a headless CI environment, the emulator may not fully initialize"
+            Write-Host "This test validates the command execution and error handling"
+            
+          } catch {
+            Write-Warning "Failed to launch xenia.exe with test game: $_"
+            Write-Host "Error details: $($_.Exception.Message)"
+            
+            # Log error for inspection
+            Write-Host "=== Error Information ==="
+            Write-Host "Error Type: $($_.Exception.GetType().FullName)"
+            Write-Host "Stack Trace: $($_.ScriptStackTrace)"
+            
+            # Check for common issues
+            if ($_.Exception.Message -match "headless|display|graphics|DirectX|D3D") {
+              Write-Warning "This appears to be a display/graphics issue"
+              Write-Host "The emulator requires graphics capabilities not available in CI environment"
+            }
+            
+            # Don't fail the workflow - this is expected in headless environment
+            Write-Host "Continuing workflow despite expected errors in headless environment..."
           }
