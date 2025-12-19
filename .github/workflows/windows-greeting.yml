@@ -87,7 +87,7 @@ jobs:
             Write-Host "Exit code: $exitCode"
             
             # Check for common error patterns indicating headless/display issues
-            $hasDisplayIssue = $output -match "headless|display|graphics"
+            $hasDisplayIssue = $output -imatch "headless|display|graphics"
             
             if ($hasDisplayIssue) {
               Write-Warning "The executable may require display/graphics support which is not available in headless environment"
@@ -105,7 +105,7 @@ jobs:
             Write-Host "Error details: $($_.Exception.Message)"
             
             # Check if it's a headless/display issue
-            $hasDisplayIssue = $_.Exception.Message -match "headless|display|graphics"
+            $hasDisplayIssue = $_.Exception.Message -imatch "headless|display|graphics"
             
             if ($hasDisplayIssue) {
               Write-Warning "This appears to be a headless support issue - the application may require a display"
