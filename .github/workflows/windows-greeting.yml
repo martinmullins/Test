@@ -68,7 +68,7 @@ jobs:
             # Store the path for use in subsequent steps
             $xeniaPath = $xeniaExe.FullName
             # Set as environment variable for next steps
-            echo "XENIA_EXE_PATH=$xeniaPath" >> $env:GITHUB_ENV
+            "XENIA_EXE_PATH=$xeniaPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           } else {
             Write-Error "xenia.exe not found in extracted directory"
             exit 1
