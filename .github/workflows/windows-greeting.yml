@@ -51,27 +51,39 @@ jobs:
           Write-Host "Extracting xenia-release.zip..."
           Expand-Archive -Path "xenia-release.zip" -DestinationPath "xenia-extracted" -Force
           Write-Host "Extraction completed"
-      - name: List extracted contents
+      - name: List extracted contents and find xenia.exe
         shell: pwsh
         run: |
           # List the contents of the extracted folder
           Write-Host "Contents of extracted Xenia release:"
           Get-ChildItem -Path "xenia-extracted" -Recurse | Select-Object FullName, Length | Format-Table -AutoSize
+          
+          # Find xenia.exe in the extracted directory
+          Write-Host "`n=== Searching for xenia.exe ==="
+          $xeniaExe = Get-ChildItem -Path "xenia-extracted" -Recurse -Filter "xenia.exe" | Select-Object -First 1
+          
+          if ($xeniaExe) {
+            Write-Host "Found xenia.exe at: $($xeniaExe.FullName)"
+            # Store the path for use in subsequent steps
+            $xeniaPath = $xeniaExe.FullName
+            # Set as environment variable for next steps
+            Write-Output "XENIA_EXE_PATH=$xeniaPath" >> $env:GITHUB_ENV
+          } else {
+            Write-Error "xenia.exe not found in extracted directory"
+            exit 1
+          }
       - name: Validate xenia.exe with --help
         shell: pwsh
         run: |
           # Execute xenia.exe --help for validation
-          $exePath = Join-Path $env:GITHUB_WORKSPACE 'xenia-extracted\xenia.exe'
+          $exePath = $env:XENIA_EXE_PATH
           
           Write-Host "Attempting to validate: $exePath --help"
           
           # Check if the executable exists
-          if (-not (Test-Path $exePath)) {
-            Write-Warning "Executable not found at path: $exePath"
-            Write-Host "Listing contents of xenia-extracted directory:"
-            Get-ChildItem -Path "xenia-extracted" -Recurse | Select-Object FullName
-            Write-Host "Skipping validation as executable was not found"
-            exit 0
+          if (-not $exePath -or -not (Test-Path $exePath)) {
+            Write-Error "Executable not found at path: $exePath"
+            exit 1
           }
           
           Write-Host "Executable found. Running with --help argument for validation..."
@@ -121,7 +133,7 @@ jobs:
           # Launch xenia.exe with the test game file
           # Note: test-game.iso is a placeholder text file for CI testing purposes
           # In production, this would be a real Xbox 360 game ISO file
-          $exePath = Join-Path $env:GITHUB_WORKSPACE 'xenia-extracted\xenia.exe'
+          $exePath = $env:XENIA_EXE_PATH
           $gamePath = Join-Path $env:GITHUB_WORKSPACE 'test-game.iso'
           
           Write-Host "=== Xenia Emulator Game Launch Test ==="
@@ -129,7 +141,7 @@ jobs:
           Write-Host "Test game path: $gamePath"
           
           # Check if the executable exists
-          if (-not (Test-Path $exePath)) {
+          if (-not $exePath -or -not (Test-Path $exePath)) {
             Write-Error "Xenia executable not found at: $exePath"
             exit 1
           }
