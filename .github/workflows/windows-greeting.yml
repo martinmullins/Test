@@ -1,23 +1,13 @@
-name: Windows Greeting
-
 on:
   push:
-    paths:
-      - 'windows-greeting/**'
+    branches:
+      - main
 
 jobs:
-  build:
+  example_job:
     runs-on: windows-latest
-
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v2
-
-      - name: Download greeting artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: greeting-artifact
-
-      - name: Run Greeting Script
-        run: |
-          echo "Running Greeting Script"
+      - name: Checkout code
+        uses: actions/checkout@v3
+      - name: Run Script
+        run: echo "Hello, Windows!"
