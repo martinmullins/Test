@@ -2,24 +2,22 @@ name: Windows Greeting
 
 on:
   push:
-    branches:
-      - main
+    paths:
+      - 'windows-greeting/**'
 
 jobs:
-  download-xenia:
+  build:
     runs-on: windows-latest
 
     steps:
-    - name: Download latest Xenia release
-      uses: actions/download-artifact@v3
-      with:
-        name: xenia-master.zip
-        path: ./xenia
+      - name: Check out repository
+        uses: actions/checkout@v2
 
-    - name: Unzip Xenia
-      run: |
-        mkdir xenia-extracted
-        tar -xf ./xenia/xenia-master.zip -C xenia-extracted
+      - name: Download greeting artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: greeting-artifact
 
-    - name: List contents
-      run: dir xenia-extracted
+      - name: Run Greeting Script
+        run: |
+          echo "Running Greeting Script"
