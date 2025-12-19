@@ -86,8 +86,8 @@ jobs:
             Write-Host "=== End of Output ==="
             Write-Host "Exit code: $exitCode"
             
-            # Check for common error patterns indicating headless/display issues
-            $hasDisplayIssue = $output -match "headless|display|graphics"
+            # Check for common error patterns indicating headless/display issues (case-insensitive)
+            $hasDisplayIssue = $output -imatch "headless|display|graphics"
             
             if ($hasDisplayIssue) {
               Write-Warning "The executable may require display/graphics support which is not available in headless environment"
@@ -104,8 +104,8 @@ jobs:
             Write-Warning "Failed to execute xenia.exe: $_"
             Write-Host "Error details: $($_.Exception.Message)"
             
-            # Check if it's a headless/display issue
-            $hasDisplayIssue = $_.Exception.Message -match "headless|display|graphics"
+            # Check if it's a headless/display issue (case-insensitive)
+            $hasDisplayIssue = $_.Exception.Message -imatch "headless|display|graphics"
             
             if ($hasDisplayIssue) {
               Write-Warning "This appears to be a headless support issue - the application may require a display"
@@ -165,8 +165,8 @@ jobs:
               Write-Host "=== End of Output ==="
               Write-Host "Exit code: $($result.ExitCode)"
               
-              # Analyze output for errors
-              if ($result.Output -match "error|failed|exception") {
+              # Analyze output for errors (case-insensitive)
+              if ($result.Output -imatch "error|failed|exception") {
                 Write-Warning "Errors detected in output"
               }
               
@@ -201,8 +201,8 @@ jobs:
             Write-Host "Error Type: $($_.Exception.GetType().FullName)"
             Write-Host "Stack Trace: $($_.ScriptStackTrace)"
             
-            # Check for common issues
-            if ($_.Exception.Message -match "headless|display|graphics|DirectX|D3D") {
+            # Check for common issues (case-insensitive)
+            if ($_.Exception.Message -imatch "headless|display|graphics|DirectX|D3D") {
               Write-Warning "This appears to be a display/graphics issue"
               Write-Host "The emulator requires graphics capabilities not available in CI environment"
             }
