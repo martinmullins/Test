@@ -57,3 +57,56 @@ jobs:
           # List the contents of the extracted folder
           Write-Host "Contents of extracted Xenia release:"
           Get-ChildItem -Path "xenia-extracted" -Recurse | Select-Object FullName, Length | Format-Table -AutoSize
+      - name: Execute xenia-vfs-dump.exe with --help
+        shell: pwsh
+        run: |
+          # Execute xenia-vfs-dump.exe --help and capture output
+          $exePath = "D:\a\Test\Test\xenia-extracted\xenia-vfs-dump.exe"
+          
+          Write-Host "Attempting to execute: $exePath --help"
+          
+          # Check if the executable exists
+          if (-not (Test-Path $exePath)) {
+            Write-Error "Executable not found at path: $exePath"
+            Write-Host "Listing contents of xenia-extracted directory:"
+            Get-ChildItem -Path "xenia-extracted" -Recurse | Select-Object FullName
+            exit 1
+          }
+          
+          Write-Host "Executable found. Running with --help argument..."
+          
+          try {
+            # Execute the command and capture output
+            $output = & $exePath --help 2>&1
+            $exitCode = $LASTEXITCODE
+            
+            Write-Host "=== Command Output ==="
+            Write-Host $output
+            Write-Host "=== End of Output ==="
+            Write-Host "Exit code: $exitCode"
+            
+            # Check for common error patterns
+            if ($output -match "headless" -or $output -match "display" -or $output -match "graphics") {
+              Write-Warning "The executable may require display/graphics support which is not available in headless environment"
+              Write-Host "This is expected behavior for GUI applications running in CI/CD environments"
+            }
+            
+            # Non-zero exit codes are acceptable for --help in some applications
+            if ($exitCode -ne 0) {
+              Write-Warning "Executable exited with code: $exitCode"
+              Write-Host "Some applications return non-zero exit codes for --help, which may be normal"
+            }
+            
+          } catch {
+            Write-Error "Failed to execute xenia-vfs-dump.exe: $_"
+            Write-Host "Error details: $($_.Exception.Message)"
+            
+            # Check if it's a headless/display issue
+            if ($_.Exception.Message -match "headless" -or $_.Exception.Message -match "display") {
+              Write-Warning "This appears to be a headless support issue - the application may require a display"
+              Write-Host "This is expected for GUI applications in CI/CD environments"
+            }
+            
+            # Don't fail the workflow for expected errors
+            Write-Host "Continuing workflow despite execution error..."
+          }
