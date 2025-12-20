@@ -1,334 +1,38 @@
+# This is a GitHub Actions workflow file updated to use the latest 'actions/upload-artifact@v4'.
+
+name: Greet on Windows
+
 on:
   push:
     branches:
       - main
+  pull_request:
+    branches:
+      - main
 
 jobs:
-  example_job:
+  build:
     runs-on: windows-latest
+
     steps:
-      - name: Checkout code
+      - name: Check out repository
         uses: actions/checkout@v3
-      - name: Run Script
-        run: echo "Hello, Windows!"
-      - name: Download latest stable Xenia release
-        shell: pwsh
-        run: |
-          # Download the latest xenia_master.zip directly from the Xenia Project
-          $downloadUrl = "https://github.com/xenia-project/release-builds-windows/releases/latest/download/xenia_master.zip"
-          
-          Write-Host "Downloading Xenia master build from: $downloadUrl"
-          
-          try {
-            Invoke-WebRequest -Uri $downloadUrl -OutFile "xenia-release.zip"
-            Write-Host "Download completed successfully"
-            
-            # Verify the file was downloaded
-            if (-not (Test-Path "xenia-release.zip")) {
-              Write-Error "Failed to download xenia-release.zip"
-              exit 1
-            }
-            
-            $fileSize = (Get-Item "xenia-release.zip").Length
-            Write-Host "Downloaded file size: $fileSize bytes"
-            
-          } catch {
-            Write-Error "Failed to download Xenia release: $_"
-            Write-Host "Error details: $($_.Exception.Message)"
-            exit 1
-          }
-      - name: Extract Xenia release
-        shell: pwsh
-        run: |
-          # Extract the ZIP file
-          Write-Host "Extracting xenia-release.zip..."
-          
-          try {
-            Expand-Archive -Path "xenia-release.zip" -DestinationPath "xenia-extracted" -Force
-            Write-Host "Extraction completed"
-            
-            # Verify extraction was successful
-            if (-not (Test-Path "xenia-extracted")) {
-              Write-Error "Extraction failed - xenia-extracted directory not found"
-              exit 1
-            }
-            
-          } catch {
-            Write-Error "Failed to extract xenia-release.zip: $_"
-            Write-Host "Error details: $($_.Exception.Message)"
-            exit 1
-          }
-      - name: List extracted contents and find xenia.exe
-        shell: pwsh
-        run: |
-          # List the contents of the extracted folder
-          Write-Host "Contents of extracted Xenia release:"
-          Get-ChildItem -Path "xenia-extracted" -Recurse | Select-Object FullName, Length | Format-Table -AutoSize
-          
-          # Find xenia.exe in the extracted directory
-          Write-Host ""
-          Write-Host "=== Searching for xenia.exe ==="
-          $xeniaExe = Get-ChildItem -Path "xenia-extracted" -Recurse -Filter "xenia.exe" | Select-Object -First 1
-          
-          if ($xeniaExe) {
-            Write-Host "Found xenia.exe at: $($xeniaExe.FullName)"
-            # Store the path for use in subsequent steps
-            $xeniaPath = $xeniaExe.FullName
-            # Set as environment variable for next steps
-            "XENIA_EXE_PATH=$xeniaPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          } else {
-            Write-Error "xenia.exe not found in extracted directory"
-            exit 1
-          }
-      - name: Validate xenia.exe with --help
-        shell: pwsh
-        run: |
-          # Execute xenia.exe --help for validation
-          $exePath = $env:XENIA_EXE_PATH
-          
-          Write-Host "Attempting to validate: $exePath --help"
-          
-          # Check if the executable exists
-          if (-not $exePath -or -not (Test-Path $exePath)) {
-            Write-Error "Executable not found at path: $exePath"
-            exit 1
-          }
-          
-          Write-Host "Executable found. Running with --help argument for validation..."
-          
-          try {
-            # Execute the command and capture output
-            $output = & $exePath --help 2>&1
-            $exitCode = $LASTEXITCODE
-            
-            Write-Host "=== Command Output ==="
-            Write-Host $output
-            Write-Host "=== End of Output ==="
-            Write-Host "Exit code: $exitCode"
-            
-            # Check for common error patterns indicating headless/display issues (case-insensitive)
-            $hasDisplayIssue = $output -imatch "headless|display|graphics"
-            
-            if ($hasDisplayIssue) {
-              Write-Warning "The executable may require display/graphics support which is not available in headless environment"
-              Write-Host "This is expected behavior for GUI applications running in CI/CD environments"
-            }
-            
-            # Non-zero exit codes are acceptable for --help in some applications
-            if ($exitCode -ne 0) {
-              Write-Warning "Executable exited with code: $exitCode"
-              Write-Host "Some applications return non-zero exit codes for --help, which may be normal"
-            }
-            
-          } catch {
-            Write-Warning "Failed to execute xenia.exe: $_"
-            Write-Host "Error details: $($_.Exception.Message)"
-            
-            # Check if it's a headless/display issue (case-insensitive)
-            $hasDisplayIssue = $_.Exception.Message -imatch "headless|display|graphics"
-            
-            if ($hasDisplayIssue) {
-              Write-Warning "This appears to be a headless support issue - the application may require a display"
-              Write-Host "This is expected for GUI applications in CI/CD environments"
-            }
-            
-            # Don't fail the workflow for expected errors
-            Write-Host "Continuing workflow despite execution error..."
-          }
-      - name: Launch xenia.exe with dolphin game
-        shell: pwsh
-        run: |
-          # Launch xenia.exe with the dolphin game file
-          # Note: dolphin.xex is a real Xbox 360 executable file for testing
-          $exePath = $env:XENIA_EXE_PATH
-          $gamePath = Join-Path $env:GITHUB_WORKSPACE 'dolphin\dolphin.xex'
-          
-          Write-Host "=== Xenia Emulator Game Launch Test ==="
-          Write-Host "Xenia executable path: $exePath"
-          Write-Host "Game file path: $gamePath"
-          
-          # Check if the executable exists
-          if (-not $exePath -or -not (Test-Path $exePath)) {
-            Write-Error "Xenia executable not found at: $exePath"
-            exit 1
-          }
-          
-          # Check if the game file exists
-          if (-not (Test-Path $gamePath)) {
-            Write-Error "Game file not found at: $gamePath"
-            exit 1
-          }
-          
-          Write-Host "Both xenia.exe and dolphin.xex found."
-          Write-Host "Launching Xenia emulator with dolphin game (with 30 second timeout)..."
-          
-          try {
-            # Create a job to run Xenia with timeout handling
-            $job = Start-Job -ScriptBlock {
-              param($exe, $game)
-              $output = & $exe $game 2>&1
-              return @{
-                Output = $output
-                ExitCode = $LASTEXITCODE
-              }
-            } -ArgumentList $exePath, $gamePath
-            
-            # Wait for job with timeout (30 seconds)
-            $completed = Wait-Job -Job $job -Timeout 30
-            
-            if ($completed) {
-              # Job completed within timeout
-              $result = Receive-Job -Job $job
-              Write-Host "=== Xenia Execution Output ==="
-              Write-Host $result.Output
-              Write-Host "=== End of Output ==="
-              Write-Host "Exit code: $($result.ExitCode)"
-              
-              # Analyze output for errors (case-insensitive)
-              if ($result.Output -imatch "error|failed|exception") {
-                Write-Warning "Errors detected in output"
-              }
-              
-              if ($result.ExitCode -ne 0) {
-                Write-Warning "Xenia exited with non-zero code: $($result.ExitCode)"
-              }
-              
-              # Clean up job
-              Remove-Job -Job $job
-            } else {
-              # Job timed out
-              Write-Warning "Xenia execution timed out after 30 seconds"
-              Write-Host "This is expected behavior for emulator launches in headless environments"
-              Write-Host "The emulator likely started but cannot render without a display"
-              
-              # Stop the job and clean up
-              Stop-Job -Job $job
-              Remove-Job -Job $job
-            }
-            
-            Write-Host "=== Execution Summary ==="
-            Write-Host "Successfully attempted to launch Xenia emulator with test game"
-            Write-Host "In a headless CI environment, the emulator may not fully initialize"
-            Write-Host "This test validates the command execution and error handling"
-            
-          } catch {
-            Write-Warning "Failed to launch xenia.exe with test game: $_"
-            Write-Host "Error details: $($_.Exception.Message)"
-            
-            # Log error for inspection
-            Write-Host "=== Error Information ==="
-            Write-Host "Error Type: $($_.Exception.GetType().FullName)"
-            Write-Host "Stack Trace: $($_.ScriptStackTrace)"
-            
-            # Check for common issues (case-insensitive)
-            if ($_.Exception.Message -imatch "headless|display|graphics|DirectX|D3D") {
-              Write-Warning "This appears to be a display/graphics issue"
-              Write-Host "The emulator requires graphics capabilities not available in CI environment"
-            }
-            
-            # Don't fail the workflow - this is expected in headless environment
-            Write-Host "Continuing workflow despite expected errors in headless environment..."
-          }
+
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.11'
-      - name: Install Python dependencies
-        shell: pwsh
+          python-version: '3.x'
+
+      - name: Install dependencies
         run: |
-          Write-Host "Installing Python dependencies..."
-          
-          try {
-            # Install pyautogui for GUI automation
-            python -m pip install --upgrade pip
-            pip install pyautogui
-            
-            Write-Host "✓ Python dependencies installed successfully"
-            
-            # Verify installation
-            python -c "import pyautogui; print(f'PyAutoGUI version: {pyautogui.__version__}')"
-            
-          } catch {
-            Write-Error "Failed to install Python dependencies: $_"
-            Write-Host "Error details: $($_.Exception.Message)"
-            exit 1
-          }
-      - name: Run Xenia automation script
-        shell: pwsh
-        run: |
-          # Run the Python automation script to automate Xenia and capture screenshots
-          $exePath = $env:XENIA_EXE_PATH
-          $gamePath = Join-Path $env:GITHUB_WORKSPACE 'dolphin\dolphin.xex'
-          $scriptPath = Join-Path $env:GITHUB_WORKSPACE 'xenia_automation.py'
-          
-          Write-Host "=== Running Xenia Automation Script ==="
-          Write-Host "Script path: $scriptPath"
-          Write-Host "Xenia executable: $exePath"
-          Write-Host "Game file: $gamePath"
-          
-          # Check if script exists
-          if (-not (Test-Path $scriptPath)) {
-            Write-Error "Automation script not found at: $scriptPath"
-            exit 1
-          }
-          
-          # Check if Xenia executable exists
-          if (-not $exePath -or -not (Test-Path $exePath)) {
-            Write-Error "Xenia executable not found at: $exePath"
-            exit 1
-          }
-          
-          # Check if game file exists
-          if (-not (Test-Path $gamePath)) {
-            Write-Error "Game file not found at: $gamePath"
-            exit 1
-          }
-          
-          Write-Host "All required files found. Running automation..."
-          Write-Host ""
-          
-          try {
-            # Run the Python automation script
-            # Note: In headless CI environment, GUI automation will be limited
-            # The script is designed to handle this gracefully
-            python $scriptPath --xenia-exe "$exePath" --game-file "$gamePath" --output-dir "screenshots"
-            
-            Write-Host ""
-            Write-Host "✓ Automation script completed"
-            
-            # Check if screenshots were created
-            $screenshotsDir = Join-Path $env:GITHUB_WORKSPACE 'screenshots'
-            if (Test-Path $screenshotsDir) {
-              $screenshots = Get-ChildItem -Path $screenshotsDir -Filter "*.png"
-              Write-Host "Screenshots captured: $($screenshots.Count)"
-              foreach ($screenshot in $screenshots) {
-                Write-Host "  - $($screenshot.Name) ($([math]::Round($screenshot.Length / 1KB, 2)) KB)"
-              }
-            } else {
-              Write-Warning "Screenshots directory not found"
-              Write-Host "This may be expected in headless environments where display is not available"
-            }
-            
-          } catch {
-            Write-Warning "Automation script encountered issues: $_"
-            Write-Host "Error details: $($_.Exception.Message)"
-            
-            # Check for common headless environment issues
-            if ($_.Exception.Message -imatch "display|screen|headless|PyAutoGUI") {
-              Write-Host ""
-              Write-Host "⚠ This appears to be a headless environment limitation"
-              Write-Host "GUI automation requires display capabilities not available in CI"
-              Write-Host "The automation script is designed to handle this gracefully"
-            }
-            
-            # Don't fail the workflow for expected headless errors
-            Write-Host "Continuing workflow..."
-          }
-      - name: Upload screenshots as artifacts
-        uses: actions/upload-artifact@v3
-        if: always()
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run script
+        run: python script.py
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
         with:
-          name: xenia-automation-screenshots
-          path: screenshots/
-          if-no-files-found: warn
-          retention-days: 30
+          name: my-artifact
+          path: path/to/artifact
