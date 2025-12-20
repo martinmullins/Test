@@ -5,11 +5,18 @@ and captures screenshots at each step.
 """
 
 import sys
+import io
 import os
 import time
 import subprocess
 import argparse
 from pathlib import Path
+
+# Enforce UTF-8 encoding for stdout to handle Unicode characters
+# This prevents UnicodeEncodeError on systems with non-UTF-8 default encoding
+if sys.stdout.encoding and sys.stdout.encoding.lower() != 'utf-8':
+    if hasattr(sys.stdout, 'buffer'):
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 # Try to import pyautogui, but handle cases where display is not available
 pyautogui = None
@@ -34,16 +41,16 @@ def setup_screenshot_directory(output_dir="screenshots"):
 def take_screenshot(screenshot_path, filename):
     """Take a screenshot and save it to the specified path."""
     if pyautogui is None:
-        print(f"⚠ Cannot take screenshot '{filename}': pyautogui not available")
+        print(f"[Warning] Cannot take screenshot '{filename}': pyautogui not available")
         return False
     
     try:
         filepath = screenshot_path / filename
         pyautogui.screenshot(str(filepath))
-        print(f"✓ Screenshot saved: {filepath}")
+        print(f"[OK] Screenshot saved: {filepath}")
         return True
     except Exception as e:
-        print(f"✗ Failed to take screenshot '{filename}': {e}")
+        print(f"[ERROR] Failed to take screenshot '{filename}': {e}")
         return False
 
 
@@ -54,7 +61,7 @@ def launch_xenia(xenia_exe_path):
     
     # Check if the executable exists
     if not os.path.exists(xenia_exe_path):
-        print(f"✗ ERROR: Xenia executable not found at: {xenia_exe_path}")
+        print(f"[ERROR] Xenia executable not found at: {xenia_exe_path}")
         return None
     
     try:
@@ -65,7 +72,7 @@ def launch_xenia(xenia_exe_path):
             stderr=subprocess.PIPE,
             stdin=subprocess.PIPE
         )
-        print(f"✓ Xenia process started (PID: {process.pid})")
+        print(f"[OK] Xenia process started (PID: {process.pid})")
         
         # Give the application time to start
         print("Waiting for Xenia to initialize...")
@@ -74,7 +81,7 @@ def launch_xenia(xenia_exe_path):
         # Check if process is still running
         if process.poll() is not None:
             stdout, stderr = process.communicate()
-            print(f"✗ Xenia process terminated unexpectedly")
+            print(f"[ERROR] Xenia process terminated unexpectedly")
             print(f"Exit code: {process.returncode}")
             if stdout:
                 print(f"STDOUT: {stdout.decode('utf-8', errors='ignore')}")
@@ -85,7 +92,7 @@ def launch_xenia(xenia_exe_path):
         return process
         
     except Exception as e:
-        print(f"✗ Failed to launch Xenia: {e}")
+        print(f"[ERROR] Failed to launch Xenia: {e}")
         print(f"Error type: {type(e).__name__}")
         return None
 
@@ -102,7 +109,7 @@ def automate_file_open(game_path, screenshot_path):
     print(f"Game file path: {game_path}")
     
     if pyautogui is None:
-        print("\n✗ Cannot automate GUI: pyautogui not available")
+        print("\n[ERROR] Cannot automate GUI: pyautogui not available")
         return False
     
     try:
@@ -139,21 +146,21 @@ def automate_file_open(game_path, screenshot_path):
         time.sleep(3)
         take_screenshot(screenshot_path, "05_file_loaded.png")
         
-        print("\n✓ Automation sequence completed successfully")
+        print("\n[OK] Automation sequence completed successfully")
         return True
         
     except pyautogui.FailSafeException:
-        print("\n✗ PyAutoGUI fail-safe triggered (mouse moved to corner)")
+        print("\n[ERROR] PyAutoGUI fail-safe triggered (mouse moved to corner)")
         print("This is a safety feature to stop automation")
         return False
     except Exception as e:
-        print(f"\n✗ Automation failed: {e}")
+        print(f"\n[ERROR] Automation failed: {e}")
         print(f"Error type: {type(e).__name__}")
         
         # Check for common headless environment errors
         error_msg = str(e).lower()
         if "display" in error_msg or "screen" in error_msg or "headless" in error_msg:
-            print("\n⚠ This appears to be a headless environment issue")
+            print("\n[Warning] This appears to be a headless environment issue")
             print("PyAutoGUI requires a display to function properly")
             print("This is expected behavior in CI/CD environments without GUI support")
         
@@ -194,17 +201,17 @@ def main():
     
     # Check pyautogui availability
     if pyautogui is None:
-        print(f"\n⚠ WARNING: {pyautogui_import_error}")
+        print(f"\n[Warning] WARNING: {pyautogui_import_error}")
         print("GUI automation will not be available")
         print("This is expected in headless environments")
     
     # Validate inputs
     if not os.path.exists(args.xenia_exe):
-        print(f"\n✗ ERROR: Xenia executable not found: {args.xenia_exe}")
+        print(f"\n[ERROR] Xenia executable not found: {args.xenia_exe}")
         sys.exit(1)
     
     if not os.path.exists(args.game_file):
-        print(f"\n✗ ERROR: Game file not found: {args.game_file}")
+        print(f"\n[ERROR] Game file not found: {args.game_file}")
         sys.exit(1)
     
     print(f"\nConfiguration:")
@@ -215,21 +222,21 @@ def main():
     
     # Setup screenshot directory
     screenshot_path = setup_screenshot_directory(args.output_dir)
-    print(f"\n✓ Screenshot directory ready: {screenshot_path}")
+    print(f"\n[OK] Screenshot directory ready: {screenshot_path}")
     
     # Check if we're in a headless environment
     has_display = False
     if pyautogui is not None:
         try:
             screen_size = pyautogui.size()
-            print(f"\n✓ Display detected: {screen_size[0]}x{screen_size[1]}")
+            print(f"\n[OK] Display detected: {screen_size[0]}x{screen_size[1]}")
             has_display = True
         except Exception as e:
-            print(f"\n⚠ No display detected: {e}")
+            print(f"\n[Warning] No display detected: {e}")
             print("This appears to be a headless environment")
             print("Automation will be limited without display capabilities")
     else:
-        print(f"\n⚠ PyAutoGUI not available")
+        print(f"\n[Warning] PyAutoGUI not available")
         print("GUI automation features will be disabled")
     
     xenia_process = None
@@ -241,7 +248,7 @@ def main():
             xenia_process = launch_xenia(args.xenia_exe)
             
             if xenia_process is None:
-                print("\n✗ Failed to launch Xenia emulator")
+                print("\n[ERROR] Failed to launch Xenia emulator")
                 print("Cannot proceed with automation")
                 sys.exit(1)
             
@@ -250,11 +257,11 @@ def main():
                 # Automate file opening process
                 automation_success = automate_file_open(args.game_file, screenshot_path)
             else:
-                print("\n⚠ Skipping GUI automation due to headless environment")
+                print("\n[Warning] Skipping GUI automation due to headless environment")
                 # Take a simple screenshot attempt for documentation
                 take_screenshot(screenshot_path, "headless_environment.png")
         else:
-            print("\n⚠ Skipping Xenia launch as requested")
+            print("\n[Warning] Skipping Xenia launch as requested")
             # Still take a screenshot of the current state
             if has_display:
                 take_screenshot(screenshot_path, "skip_launch_mode.png")
@@ -269,14 +276,14 @@ def main():
                     xenia_process.terminate()
                     # Wait up to 5 seconds for graceful termination
                     xenia_process.wait(timeout=5)
-                    print("✓ Xenia process terminated gracefully")
+                    print("[OK] Xenia process terminated gracefully")
                 except subprocess.TimeoutExpired:
-                    print("⚠ Graceful termination timed out, forcing kill...")
+                    print("[Warning] Graceful termination timed out, forcing kill...")
                     xenia_process.kill()
                     xenia_process.wait()
-                    print("✓ Xenia process killed")
+                    print("[OK] Xenia process killed")
                 except Exception as e:
-                    print(f"⚠ Error during cleanup: {e}")
+                    print(f"[Warning] Error during cleanup: {e}")
             else:
                 print(f"Xenia process already terminated (exit code: {xenia_process.returncode})")
     
@@ -291,10 +298,10 @@ def main():
         print(f"  - {screenshot.name}")
     
     if automation_success:
-        print("\n✓ Automation completed successfully")
+        print("\n[OK] Automation completed successfully")
         sys.exit(0)
     else:
-        print("\n⚠ Automation completed with warnings/errors")
+        print("\n[Warning] Automation completed with warnings/errors")
         print("This is expected behavior in headless CI environments")
         # Exit with 0 to not fail the workflow in headless environments
         sys.exit(0)
