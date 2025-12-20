@@ -135,18 +135,17 @@ jobs:
             # Don't fail the workflow for expected errors
             Write-Host "Continuing workflow despite execution error..."
           }
-      - name: Launch xenia.exe with test game
+      - name: Launch xenia.exe with dolphin game
         shell: pwsh
         run: |
-          # Launch xenia.exe with the test game file
-          # Note: test-game.iso is a placeholder text file for CI testing purposes
-          # In production, this would be a real Xbox 360 game ISO file
+          # Launch xenia.exe with the dolphin game file
+          # Note: dolphin.xex is a real Xbox 360 executable file for testing
           $exePath = $env:XENIA_EXE_PATH
-          $gamePath = Join-Path $env:GITHUB_WORKSPACE 'test-game.iso'
+          $gamePath = Join-Path $env:GITHUB_WORKSPACE 'dolphin\dolphin.xex'
           
           Write-Host "=== Xenia Emulator Game Launch Test ==="
           Write-Host "Xenia executable path: $exePath"
-          Write-Host "Test game path: $gamePath"
+          Write-Host "Game file path: $gamePath"
           
           # Check if the executable exists
           if (-not $exePath -or -not (Test-Path $exePath)) {
@@ -154,14 +153,14 @@ jobs:
             exit 1
           }
           
-          # Check if the test game exists
+          # Check if the game file exists
           if (-not (Test-Path $gamePath)) {
-            Write-Error "Test game file not found at: $gamePath"
+            Write-Error "Game file not found at: $gamePath"
             exit 1
           }
           
-          Write-Host "Both xenia.exe and test-game.iso found."
-          Write-Host "Launching Xenia emulator with test game (with 30 second timeout)..."
+          Write-Host "Both xenia.exe and dolphin.xex found."
+          Write-Host "Launching Xenia emulator with dolphin game (with 30 second timeout)..."
           
           try {
             # Create a job to run Xenia with timeout handling
@@ -259,7 +258,7 @@ jobs:
         run: |
           # Run the Python automation script to automate Xenia and capture screenshots
           $exePath = $env:XENIA_EXE_PATH
-          $gamePath = Join-Path $env:GITHUB_WORKSPACE 'test-game.iso'
+          $gamePath = Join-Path $env:GITHUB_WORKSPACE 'dolphin\dolphin.xex'
           $scriptPath = Join-Path $env:GITHUB_WORKSPACE 'xenia_automation.py'
           
           Write-Host "=== Running Xenia Automation Script ==="
