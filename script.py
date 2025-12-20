@@ -9,7 +9,8 @@ import io
 # Enforce UTF-8 encoding for stdout to handle Unicode characters
 # This prevents UnicodeEncodeError on systems with non-UTF-8 default encoding
 if sys.stdout.encoding and sys.stdout.encoding.lower() != 'utf-8':
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    if hasattr(sys.stdout, 'buffer'):
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 # Try to import pyautogui with error handling for headless environments
 try:
