@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Screenshots directory (workflow artifacts)
+screenshots/
+
+# Build artifacts
+*.zip
+xenia-extracted/
+xenia-release.zip
