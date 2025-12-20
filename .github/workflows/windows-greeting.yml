@@ -28,6 +28,20 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Download Xenia emulator
+        run: |
+          Write-Host "Downloading Xenia emulator..."
+          Invoke-WebRequest -Uri "https://github.com/xenia-project/release-builds-windows/releases/latest/download/xenia_master.zip" -OutFile "xenia_master.zip"
+          Write-Host "Download completed"
+
+      - name: Extract Xenia emulator
+        run: |
+          Write-Host "Extracting Xenia emulator..."
+          Expand-Archive -Path "xenia_master.zip" -DestinationPath "xenia" -Force
+          Write-Host "Extraction completed"
+          Write-Host "Looking for xenia.exe..."
+          Get-ChildItem -Path "xenia" -Recurse -Filter "xenia.exe" | ForEach-Object { Write-Host "Found: $($_.FullName)" }
+
       - name: Run script
         run: python script.py
 
