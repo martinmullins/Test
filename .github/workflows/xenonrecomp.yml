@@ -132,14 +132,15 @@ jobs:
             echo "Extracting function addresses from map file..."
             
             # Extract addresses for required runtime functions
-            RESTGPRLR_14=$(grep "__restgprlr_14[^0-9]" "$MAP_FILE" | head -1 | awk '{print $3}')
-            SAVEGPRLR_14=$(grep "__savegprlr_14[^0-9]" "$MAP_FILE" | head -1 | awk '{print $3}')
-            RESTFPR_14=$(grep "__restfpr_14[^0-9]" "$MAP_FILE" | head -1 | awk '{print $3}')
-            SAVEFPR_14=$(grep "__savefpr_14[^0-9]" "$MAP_FILE" | head -1 | awk '{print $3}')
-            RESTVMX_14=$(grep "__restvmx_14[^0-9]" "$MAP_FILE" | head -1 | awk '{print $3}')
-            SAVEVMX_14=$(grep "__savevmx_14[^0-9]" "$MAP_FILE" | head -1 | awk '{print $3}')
-            RESTVMX_64=$(grep "__restvmx_64[^0-9]" "$MAP_FILE" | head -1 | awk '{print $3}')
-            SAVEVMX_64=$(grep "__savevmx_64[^0-9]" "$MAP_FILE" | head -1 | awk '{print $3}')
+            # Using word boundary to match exact function names
+            RESTGPRLR_14=$(grep -w "__restgprlr_14" "$MAP_FILE" | head -1 | awk '{print $3}')
+            SAVEGPRLR_14=$(grep -w "__savegprlr_14" "$MAP_FILE" | head -1 | awk '{print $3}')
+            RESTFPR_14=$(grep -w "__restfpr_14" "$MAP_FILE" | head -1 | awk '{print $3}')
+            SAVEFPR_14=$(grep -w "__savefpr_14" "$MAP_FILE" | head -1 | awk '{print $3}')
+            RESTVMX_14=$(grep -w "__restvmx_14" "$MAP_FILE" | head -1 | awk '{print $3}')
+            SAVEVMX_14=$(grep -w "__savevmx_14" "$MAP_FILE" | head -1 | awk '{print $3}')
+            RESTVMX_64=$(grep -w "__restvmx_64" "$MAP_FILE" | head -1 | awk '{print $3}')
+            SAVEVMX_64=$(grep -w "__savevmx_64" "$MAP_FILE" | head -1 | awk '{print $3}')
             
             echo "Found addresses:"
             echo "  __restgprlr_14: $RESTGPRLR_14"
@@ -204,13 +205,65 @@ jobs:
           
           echo "Validating configuration file..."
           
-          # Check if all required addresses are non-zero
-          RESTGPRLR=${{ steps.extract_addresses.outputs.restgprlr_14 }}
-          SAVEGPRLR=${{ steps.extract_addresses.outputs.savegprlr_14 }}
+          # Check if all required addresses are non-zero and non-empty
+          RESTGPRLR_14="${{ steps.extract_addresses.outputs.restgprlr_14 }}"
+          SAVEGPRLR_14="${{ steps.extract_addresses.outputs.savegprlr_14 }}"
+          RESTFPR_14="${{ steps.extract_addresses.outputs.restfpr_14 }}"
+          SAVEFPR_14="${{ steps.extract_addresses.outputs.savefpr_14 }}"
+          RESTVMX_14="${{ steps.extract_addresses.outputs.restvmx_14 }}"
+          SAVEVMX_14="${{ steps.extract_addresses.outputs.savevmx_14 }}"
+          RESTVMX_64="${{ steps.extract_addresses.outputs.restvmx_64 }}"
+          SAVEVMX_64="${{ steps.extract_addresses.outputs.savevmx_64 }}"
           
-          if [ "$RESTGPRLR" = "0x0" ] || [ "$SAVEGPRLR" = "0x0" ]; then
+          VALIDATION_FAILED=false
+          
+          if [ -z "$RESTGPRLR_14" ] || [ "$RESTGPRLR_14" = "0x0" ] || [ "$RESTGPRLR_14" = "0x" ]; then
+            echo "ERROR: __restgprlr_14 address is missing or invalid: '$RESTGPRLR_14'"
+            VALIDATION_FAILED=true
+          fi
+          
+          if [ -z "$SAVEGPRLR_14" ] || [ "$SAVEGPRLR_14" = "0x0" ] || [ "$SAVEGPRLR_14" = "0x" ]; then
+            echo "ERROR: __savegprlr_14 address is missing or invalid: '$SAVEGPRLR_14'"
+            VALIDATION_FAILED=true
+          fi
+          
+          if [ -z "$RESTFPR_14" ] || [ "$RESTFPR_14" = "0x0" ] || [ "$RESTFPR_14" = "0x" ]; then
+            echo "ERROR: __restfpr_14 address is missing or invalid: '$RESTFPR_14'"
+            VALIDATION_FAILED=true
+          fi
+          
+          if [ -z "$SAVEFPR_14" ] || [ "$SAVEFPR_14" = "0x0" ] || [ "$SAVEFPR_14" = "0x" ]; then
+            echo "ERROR: __savefpr_14 address is missing or invalid: '$SAVEFPR_14'"
+            VALIDATION_FAILED=true
+          fi
+          
+          if [ -z "$RESTVMX_14" ] || [ "$RESTVMX_14" = "0x0" ] || [ "$RESTVMX_14" = "0x" ]; then
+            echo "ERROR: __restvmx_14 address is missing or invalid: '$RESTVMX_14'"
+            VALIDATION_FAILED=true
+          fi
+          
+          if [ -z "$SAVEVMX_14" ] || [ "$SAVEVMX_14" = "0x0" ] || [ "$SAVEVMX_14" = "0x" ]; then
+            echo "ERROR: __savevmx_14 address is missing or invalid: '$SAVEVMX_14'"
+            VALIDATION_FAILED=true
+          fi
+          
+          if [ -z "$RESTVMX_64" ] || [ "$RESTVMX_64" = "0x0" ] || [ "$RESTVMX_64" = "0x" ]; then
+            echo "ERROR: __restvmx_64 address is missing or invalid: '$RESTVMX_64'"
+            VALIDATION_FAILED=true
+          fi
+          
+          if [ -z "$SAVEVMX_64" ] || [ "$SAVEVMX_64" = "0x0" ] || [ "$SAVEVMX_64" = "0x" ]; then
+            echo "ERROR: __savevmx_64 address is missing or invalid: '$SAVEVMX_64'"
+            VALIDATION_FAILED=true
+          fi
+          
+          if [ "$VALIDATION_FAILED" = "true" ]; then
+            echo ""
             echo "WARNING: Some required function addresses are missing or invalid"
             echo "XenonRecomp may not work correctly with this XEX file"
+            echo "Please ensure the map file contains all required runtime function symbols"
+          else
+            echo "✓ All required addresses are valid"
           fi
           
           echo "Configuration validation complete"
