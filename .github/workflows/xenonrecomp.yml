@@ -1,0 +1,177 @@
+name: XenonRecomp Workflow
+
+on:
+  workflow_dispatch:
+    inputs:
+      xex_file_path:
+        description: 'Path to the dolphin.xex file (relative to repository root)'
+        required: false
+        default: 'dolphin/dolphin.xex'
+      output_directory:
+        description: 'Directory for generated .cpp files'
+        required: false
+        default: 'generated_cpp'
+
+jobs:
+  recompile:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Check out Test repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+      
+      - name: Set up Clang 18
+        run: |
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 18
+          sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-18 100
+          sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-18 100
+          clang --version
+          clang++ --version
+      
+      - name: Install CMake
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake
+          cmake --version
+      
+      - name: Clone XenonRecomp repository
+        run: |
+          cd ${{ github.workspace }}
+          git clone --recursive https://github.com/hedge-dev/XenonRecomp.git
+          cd XenonRecomp
+          git log -1 --oneline
+      
+      - name: Build XenonRecomp
+        run: |
+          cd ${{ github.workspace }}/XenonRecomp
+          mkdir -p build
+          cd build
+          cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang-18 -DCMAKE_CXX_COMPILER=clang++-18
+          cmake --build . --config Release
+          echo "Build completed"
+          ls -la
+      
+      - name: Verify XEX file exists
+        run: |
+          XEX_FILE="${{ github.workspace }}/${{ inputs.xex_file_path }}"
+          if [ ! -f "$XEX_FILE" ]; then
+            echo "ERROR: XEX file not found at $XEX_FILE"
+            exit 1
+          fi
+          echo "XEX file found: $XEX_FILE"
+          ls -lh "$XEX_FILE"
+      
+      - name: Create output directory
+        run: |
+          OUTPUT_DIR="${{ github.workspace }}/${{ inputs.output_directory }}"
+          mkdir -p "$OUTPUT_DIR"
+          echo "Output directory created: $OUTPUT_DIR"
+      
+      - name: Run XenonAnalyse to detect jump tables
+        run: |
+          cd ${{ github.workspace }}/XenonRecomp/build
+          XEX_FILE="${{ github.workspace }}/${{ inputs.xex_file_path }}"
+          JUMP_TABLES_OUTPUT="${{ github.workspace }}/jump_tables.toml"
+          
+          echo "Running XenonAnalyse..."
+          ./XenonAnalyse/XenonAnalyse "$XEX_FILE" "$JUMP_TABLES_OUTPUT" || true
+          
+          if [ -f "$JUMP_TABLES_OUTPUT" ]; then
+            echo "Jump tables TOML generated:"
+            head -n 20 "$JUMP_TABLES_OUTPUT"
+          else
+            echo "No jump tables TOML generated (this may be expected)"
+            touch "$JUMP_TABLES_OUTPUT"
+          fi
+      
+      - name: Create XenonRecomp configuration file
+        run: |
+          XEX_FILE="${{ github.workspace }}/${{ inputs.xex_file_path }}"
+          OUTPUT_DIR="${{ github.workspace }}/${{ inputs.output_directory }}"
+          JUMP_TABLES_FILE="${{ github.workspace }}/jump_tables.toml"
+          CONFIG_FILE="${{ github.workspace }}/xenonrecomp_config.toml"
+          
+          cat > "$CONFIG_FILE" << 'EOF'
+          [main]
+          file_path = "${{ inputs.xex_file_path }}"
+          out_directory_path = "${{ inputs.output_directory }}"
+          switch_table_file_path = "jump_tables.toml"
+          
+          [optimizations]
+          skip_lr = false
+          skip_msr = false
+          ctr_as_local = false
+          xer_as_local = false
+          reserved_as_local = false
+          cr_as_local = false
+          non_argument_as_local = false
+          non_volatile_as_local = false
+          EOF
+          
+          echo "Configuration file created:"
+          cat "$CONFIG_FILE"
+      
+      - name: Run XenonRecomp to generate C++ files
+        run: |
+          cd ${{ github.workspace }}
+          CONFIG_FILE="${{ github.workspace }}/xenonrecomp_config.toml"
+          PPC_CONTEXT_HEADER="${{ github.workspace }}/XenonRecomp/XenonUtils/ppc_context.h"
+          
+          echo "Running XenonRecomp..."
+          ./XenonRecomp/build/XenonRecomp/XenonRecomp "$CONFIG_FILE" "$PPC_CONTEXT_HEADER" || {
+            echo "XenonRecomp failed with exit code $?"
+            echo "This may be expected if the XEX file requires additional configuration"
+            exit 1
+          }
+          
+          echo "Checking generated files:"
+          ls -lah "${{ inputs.output_directory }}" || echo "Output directory is empty or does not exist"
+      
+      - name: List generated C++ files
+        run: |
+          OUTPUT_DIR="${{ github.workspace }}/${{ inputs.output_directory }}"
+          if [ -d "$OUTPUT_DIR" ]; then
+            echo "Generated C++ files:"
+            find "$OUTPUT_DIR" -type f -name "*.cpp" -o -name "*.h" | head -20
+            
+            echo ""
+            echo "Total file count:"
+            find "$OUTPUT_DIR" -type f | wc -l
+          else
+            echo "No output directory found"
+            exit 1
+          fi
+      
+      - name: Configure Git
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+      
+      - name: Commit and push generated files
+        run: |
+          git add ${{ inputs.output_directory }}
+          git add jump_tables.toml || true
+          
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Add generated C++ files from XenonRecomp workflow"
+            git push
+            echo "Changes pushed successfully"
+          fi
+      
+      - name: Upload generated files as artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: xenonrecomp-output
+          path: |
+            ${{ inputs.output_directory }}
+            jump_tables.toml
+            xenonrecomp_config.toml
+          retention-days: 7
