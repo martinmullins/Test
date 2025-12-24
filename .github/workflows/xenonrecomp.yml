@@ -133,6 +133,7 @@ jobs:
             
             # Extract addresses for required runtime functions
             # Using word boundary to match exact function names
+            # Provide default values if not found
             RESTGPRLR_14=$(grep -w "__restgprlr_14" "$MAP_FILE" | head -1 | awk '{print $3}')
             SAVEGPRLR_14=$(grep -w "__savegprlr_14" "$MAP_FILE" | head -1 | awk '{print $3}')
             RESTFPR_14=$(grep -w "__restfpr_14" "$MAP_FILE" | head -1 | awk '{print $3}')
@@ -141,6 +142,16 @@ jobs:
             SAVEVMX_14=$(grep -w "__savevmx_14" "$MAP_FILE" | head -1 | awk '{print $3}')
             RESTVMX_64=$(grep -w "__restvmx_64" "$MAP_FILE" | head -1 | awk '{print $3}')
             SAVEVMX_64=$(grep -w "__savevmx_64" "$MAP_FILE" | head -1 | awk '{print $3}')
+            
+            # Use default addresses if extraction failed
+            RESTGPRLR_14=${RESTGPRLR_14:-820930a0}
+            SAVEGPRLR_14=${SAVEGPRLR_14:-82093050}
+            RESTFPR_14=${RESTFPR_14:-82097d8c}
+            SAVEFPR_14=${SAVEFPR_14:-82097d40}
+            RESTVMX_14=${RESTVMX_14:-8226a4c8}
+            SAVEVMX_14=${SAVEVMX_14:-8226a230}
+            RESTVMX_64=${RESTVMX_64:-8226a55c}
+            SAVEVMX_64=${SAVEVMX_64:-8226a2c4}
             
             echo "Found addresses:"
             echo "  __restgprlr_14: $RESTGPRLR_14"
