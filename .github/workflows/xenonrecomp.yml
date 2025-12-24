@@ -99,6 +99,56 @@ jobs:
             touch "$JUMP_TABLES_OUTPUT"
           fi
       
+      - name: Extract function addresses from map file
+        id: extract_addresses
+        run: |
+          MAP_FILE="${{ github.workspace }}/dolphin/dolphin.map"
+          
+          if [ ! -f "$MAP_FILE" ]; then
+            echo "WARNING: Map file not found at $MAP_FILE"
+            echo "Using default addresses (may cause issues)"
+            echo "restgprlr_14=0x820930a0" >> $GITHUB_OUTPUT
+            echo "savegprlr_14=0x82093050" >> $GITHUB_OUTPUT
+            echo "restfpr_14=0x82097d8c" >> $GITHUB_OUTPUT
+            echo "savefpr_14=0x82097d40" >> $GITHUB_OUTPUT
+            echo "restvmx_14=0x8226a4c8" >> $GITHUB_OUTPUT
+            echo "savevmx_14=0x8226a230" >> $GITHUB_OUTPUT
+            echo "restvmx_64=0x8226a55c" >> $GITHUB_OUTPUT
+            echo "savevmx_64=0x8226a2c4" >> $GITHUB_OUTPUT
+          else
+            echo "Extracting function addresses from map file..."
+            
+            # Extract addresses for required runtime functions
+            RESTGPRLR_14=$(grep "__restgprlr_14[^0-9]" "$MAP_FILE" | head -1 | awk '{print $3}')
+            SAVEGPRLR_14=$(grep "__savegprlr_14[^0-9]" "$MAP_FILE" | head -1 | awk '{print $3}')
+            RESTFPR_14=$(grep "__restfpr_14[^0-9]" "$MAP_FILE" | head -1 | awk '{print $3}')
+            SAVEFPR_14=$(grep "__savefpr_14[^0-9]" "$MAP_FILE" | head -1 | awk '{print $3}')
+            RESTVMX_14=$(grep "__restvmx_14[^0-9]" "$MAP_FILE" | head -1 | awk '{print $3}')
+            SAVEVMX_14=$(grep "__savevmx_14[^0-9]" "$MAP_FILE" | head -1 | awk '{print $3}')
+            RESTVMX_64=$(grep "__restvmx_64[^0-9]" "$MAP_FILE" | head -1 | awk '{print $3}')
+            SAVEVMX_64=$(grep "__savevmx_64[^0-9]" "$MAP_FILE" | head -1 | awk '{print $3}')
+            
+            echo "Found addresses:"
+            echo "  __restgprlr_14: $RESTGPRLR_14"
+            echo "  __savegprlr_14: $SAVEGPRLR_14"
+            echo "  __restfpr_14: $RESTFPR_14"
+            echo "  __savefpr_14: $SAVEFPR_14"
+            echo "  __restvmx_14: $RESTVMX_14"
+            echo "  __savevmx_14: $SAVEVMX_14"
+            echo "  __restvmx_64: $RESTVMX_64"
+            echo "  __savevmx_64: $SAVEVMX_64"
+            
+            # Convert to hex format with 0x prefix
+            echo "restgprlr_14=0x${RESTGPRLR_14}" >> $GITHUB_OUTPUT
+            echo "savegprlr_14=0x${SAVEGPRLR_14}" >> $GITHUB_OUTPUT
+            echo "restfpr_14=0x${RESTFPR_14}" >> $GITHUB_OUTPUT
+            echo "savefpr_14=0x${SAVEFPR_14}" >> $GITHUB_OUTPUT
+            echo "restvmx_14=0x${RESTVMX_14}" >> $GITHUB_OUTPUT
+            echo "savevmx_14=0x${SAVEVMX_14}" >> $GITHUB_OUTPUT
+            echo "restvmx_64=0x${RESTVMX_64}" >> $GITHUB_OUTPUT
+            echo "savevmx_64=0x${SAVEVMX_64}" >> $GITHUB_OUTPUT
+          fi
+      
       - name: Create XenonRecomp configuration file
         run: |
           XEX_FILE="${{ github.workspace }}/${{ inputs.xex_file_path }}"
@@ -111,6 +161,15 @@ jobs:
           file_path = "${{ inputs.xex_file_path }}"
           out_directory_path = "${{ inputs.output_directory }}"
           switch_table_file_path = "jump_tables.toml"
+          
+          restgprlr_14_address = ${{ steps.extract_addresses.outputs.restgprlr_14 }}
+          savegprlr_14_address = ${{ steps.extract_addresses.outputs.savegprlr_14 }}
+          restfpr_14_address = ${{ steps.extract_addresses.outputs.restfpr_14 }}
+          savefpr_14_address = ${{ steps.extract_addresses.outputs.savefpr_14 }}
+          restvmx_14_address = ${{ steps.extract_addresses.outputs.restvmx_14 }}
+          savevmx_14_address = ${{ steps.extract_addresses.outputs.savevmx_14 }}
+          restvmx_64_address = ${{ steps.extract_addresses.outputs.restvmx_64 }}
+          savevmx_64_address = ${{ steps.extract_addresses.outputs.savevmx_64 }}
           
           [optimizations]
           skip_lr = false
