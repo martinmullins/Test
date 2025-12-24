@@ -122,7 +122,7 @@ jobs:
           fi
           
           echo "✓ XEX file found: $XEX_FILE"
-          echo "File size: $(stat -f%z "$XEX_FILE" 2>/dev/null || stat -c%s "$XEX_FILE" 2>/dev/null || echo "unknown")"
+          echo "File size: $(stat -c%s "$XEX_FILE" 2>/dev/null || echo "unknown") bytes"
           ls -lh "$XEX_FILE"
       
       - name: Create output directory
@@ -281,9 +281,9 @@ jobs:
             echo ""
             
             # Check for core dumps
-            if ls core* 2>/dev/null; then
+            if ls core* 2>/dev/null | grep -q .; then
               echo "Core dump files found:"
-              ls -lh core*
+              ls -lh core* 2>/dev/null
               echo ""
               echo "To debug, download the core file and run:"
               echo "gdb $XENONRECOMP_BINARY core"
