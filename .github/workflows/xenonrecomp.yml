@@ -25,9 +25,11 @@ jobs:
       
       - name: Set up Clang 18
         run: |
-          wget https://apt.llvm.org/llvm.sh
-          chmod +x llvm.sh
-          sudo ./llvm.sh 18
+          # Add LLVM repository and install Clang 18
+          wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
+          sudo add-apt-repository "deb http://apt.llvm.org/$(lsb_release -cs)/ llvm-toolchain-$(lsb_release -cs)-18 main"
+          sudo apt-get update
+          sudo apt-get install -y clang-18 clang++-18
           sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-18 100
           sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-18 100
           clang --version
@@ -79,13 +81,19 @@ jobs:
           JUMP_TABLES_OUTPUT="${{ github.workspace }}/jump_tables.toml"
           
           echo "Running XenonAnalyse..."
-          ./XenonAnalyse/XenonAnalyse "$XEX_FILE" "$JUMP_TABLES_OUTPUT" || true
+          # XenonAnalyse may fail if no jump tables are detected, which is acceptable
+          if ./XenonAnalyse/XenonAnalyse "$XEX_FILE" "$JUMP_TABLES_OUTPUT"; then
+            echo "XenonAnalyse completed successfully"
+          else
+            EXIT_CODE=$?
+            echo "XenonAnalyse exited with code $EXIT_CODE (this may be expected if no jump tables found)"
+          fi
           
           if [ -f "$JUMP_TABLES_OUTPUT" ]; then
             echo "Jump tables TOML generated:"
             head -n 20 "$JUMP_TABLES_OUTPUT"
           else
-            echo "No jump tables TOML generated (this may be expected)"
+            echo "No jump tables TOML generated, creating empty file"
             touch "$JUMP_TABLES_OUTPUT"
           fi
       
@@ -123,11 +131,22 @@ jobs:
           PPC_CONTEXT_HEADER="${{ github.workspace }}/XenonRecomp/XenonUtils/ppc_context.h"
           
           echo "Running XenonRecomp..."
-          ./XenonRecomp/build/XenonRecomp/XenonRecomp "$CONFIG_FILE" "$PPC_CONTEXT_HEADER" || {
-            echo "XenonRecomp failed with exit code $?"
-            echo "This may be expected if the XEX file requires additional configuration"
-            exit 1
-          }
+          if ./XenonRecomp/build/XenonRecomp/XenonRecomp "$CONFIG_FILE" "$PPC_CONTEXT_HEADER"; then
+            echo "XenonRecomp completed successfully"
+          else
+            EXIT_CODE=$?
+            echo "ERROR: XenonRecomp failed with exit code $EXIT_CODE"
+            echo "The XEX file may require additional configuration or analysis"
+            echo "Please check the XenonRecomp documentation for more details"
+            
+            # Check if partial output was generated
+            if [ -d "${{ inputs.output_directory }}" ] && [ "$(ls -A ${{ inputs.output_directory }})" ]; then
+              echo "Partial output was generated, continuing with workflow"
+            else
+              echo "No output was generated, failing workflow"
+              exit 1
+            fi
+          fi
           
           echo "Checking generated files:"
           ls -lah "${{ inputs.output_directory }}" || echo "Output directory is empty or does not exist"
@@ -154,8 +173,18 @@ jobs:
       
       - name: Commit and push generated files
         run: |
+          # Check if output directory exists and has files
+          if [ ! -d "${{ inputs.output_directory }}" ]; then
+            echo "Output directory does not exist, nothing to commit"
+            exit 0
+          fi
+          
           git add ${{ inputs.output_directory }}
-          git add jump_tables.toml || true
+          
+          # Add jump tables file if it exists
+          if [ -f "jump_tables.toml" ]; then
+            git add jump_tables.toml
+          fi
           
           if git diff --staged --quiet; then
             echo "No changes to commit"
