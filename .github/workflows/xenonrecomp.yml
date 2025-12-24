@@ -82,19 +82,32 @@ jobs:
           XEX_FILE="${{ github.workspace }}/${{ inputs.xex_file_path }}"
           JUMP_TABLES_OUTPUT="${{ github.workspace }}/jump_tables.toml"
           
-          echo "Running XenonAnalyse..."
+          echo "Running XenonAnalyse to detect jump tables..."
+          echo "Note: XenonAnalyse may fail if no jump tables are detected, which is acceptable"
+          
           # XenonAnalyse may fail if no jump tables are detected, which is acceptable
-          if ./XenonAnalyse/XenonAnalyse "$XEX_FILE" "$JUMP_TABLES_OUTPUT"; then
-            echo "XenonAnalyse completed successfully"
+          set +e  # Don't exit on error
+          ./XenonAnalyse/XenonAnalyse "$XEX_FILE" "$JUMP_TABLES_OUTPUT" 2>&1 | tee xenonanalyse.log
+          EXIT_CODE=$?
+          set -e  # Re-enable exit on error
+          
+          if [ $EXIT_CODE -eq 0 ]; then
+            echo "✓ XenonAnalyse completed successfully"
+          elif [ $EXIT_CODE -eq 139 ]; then
+            echo "⚠ XenonAnalyse crashed with segmentation fault (exit code 139)"
+            echo "This may indicate the XEX file format is not fully supported"
+            echo "Continuing with empty jump tables file..."
           else
-            EXIT_CODE=$?
-            echo "XenonAnalyse exited with code $EXIT_CODE (this may be expected if no jump tables found)"
+            echo "⚠ XenonAnalyse exited with code $EXIT_CODE"
+            echo "This may be expected if no jump tables were found"
           fi
           
           if [ -f "$JUMP_TABLES_OUTPUT" ]; then
+            echo ""
             echo "Jump tables TOML generated:"
             head -n 20 "$JUMP_TABLES_OUTPUT"
           else
+            echo ""
             echo "No jump tables TOML generated, creating empty file"
             touch "$JUMP_TABLES_OUTPUT"
           fi
@@ -185,6 +198,23 @@ jobs:
           echo "Configuration file created:"
           cat "$CONFIG_FILE"
       
+      - name: Validate configuration
+        run: |
+          CONFIG_FILE="${{ github.workspace }}/xenonrecomp_config.toml"
+          
+          echo "Validating configuration file..."
+          
+          # Check if all required addresses are non-zero
+          RESTGPRLR=${{ steps.extract_addresses.outputs.restgprlr_14 }}
+          SAVEGPRLR=${{ steps.extract_addresses.outputs.savegprlr_14 }}
+          
+          if [ "$RESTGPRLR" = "0x0" ] || [ "$SAVEGPRLR" = "0x0" ]; then
+            echo "WARNING: Some required function addresses are missing or invalid"
+            echo "XenonRecomp may not work correctly with this XEX file"
+          fi
+          
+          echo "Configuration validation complete"
+      
       - name: Run XenonRecomp to generate C++ files
         run: |
           cd ${{ github.workspace }}
@@ -193,19 +223,62 @@ jobs:
           OUTPUT_DIR="${{ github.workspace }}/${{ inputs.output_directory }}"
           
           echo "Running XenonRecomp..."
-          if ./XenonRecomp/build/XenonRecomp/XenonRecomp "$CONFIG_FILE" "$PPC_CONTEXT_HEADER"; then
-            echo "XenonRecomp completed successfully"
+          echo "Note: This may take several minutes for large XEX files..."
+          
+          # Run XenonRecomp with timeout protection
+          set +e  # Don't exit on error
+          timeout 300 ./XenonRecomp/build/XenonRecomp/XenonRecomp "$CONFIG_FILE" "$PPC_CONTEXT_HEADER" 2>&1 | tee xenonrecomp.log
+          EXIT_CODE=$?
+          set -e  # Re-enable exit on error
+          
+          echo ""
+          echo "XenonRecomp exit code: $EXIT_CODE"
+          
+          if [ $EXIT_CODE -eq 0 ]; then
+            echo "✓ XenonRecomp completed successfully"
+          elif [ $EXIT_CODE -eq 124 ]; then
+            echo "ERROR: XenonRecomp timed out after 5 minutes"
+            echo "The XEX file may be too large or XenonRecomp encountered an infinite loop"
+            exit 1
+          elif [ $EXIT_CODE -eq 139 ]; then
+            echo "ERROR: XenonRecomp crashed with a segmentation fault (exit code 139)"
+            echo ""
+            echo "This typically indicates one of the following issues:"
+            echo "1. The XEX file format may not be fully supported by XenonRecomp"
+            echo "2. Required function addresses may be incorrect or missing"
+            echo "3. The XEX file may have characteristics that XenonRecomp cannot handle"
+            echo ""
+            echo "XenonRecomp was designed for games like Sonic Unleashed and may not"
+            echo "work correctly with all Xbox 360 executables."
+            echo ""
+            echo "Last output from XenonRecomp:"
+            tail -20 xenonrecomp.log || true
+            
+            # Check if any output was generated before crash
+            if [ -d "$OUTPUT_DIR" ] && [ "$(ls -A $OUTPUT_DIR 2>/dev/null)" ]; then
+              echo ""
+              echo "⚠ Partial output was generated before crash:"
+              find "$OUTPUT_DIR" -type f | head -10
+              echo "Continuing with partial output..."
+            else
+              echo ""
+              echo "✗ No output was generated"
+              echo "Workflow cannot continue without generated C++ files"
+              exit 1
+            fi
           else
-            EXIT_CODE=$?
             echo "ERROR: XenonRecomp failed with exit code $EXIT_CODE"
-            echo "The XEX file may require additional configuration or analysis"
-            echo "Please check the XenonRecomp documentation for more details"
+            echo ""
+            echo "Last output from XenonRecomp:"
+            tail -20 xenonrecomp.log || true
             
             # Check if partial output was generated
-            if [ -d "$OUTPUT_DIR" ] && [ "$(ls -A $OUTPUT_DIR)" ]; then
-              echo "Partial output was generated, continuing with workflow"
+            if [ -d "$OUTPUT_DIR" ] && [ "$(ls -A $OUTPUT_DIR 2>/dev/null)" ]; then
+              echo ""
+              echo "⚠ Partial output was generated, continuing with workflow"
             else
-              echo "No output was generated, failing workflow"
+              echo ""
+              echo "✗ No output was generated, failing workflow"
               exit 1
             fi
           fi
