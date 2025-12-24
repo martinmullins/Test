@@ -16,6 +16,9 @@ jobs:
   recompile:
     runs-on: ubuntu-latest
     
+    permissions:
+      contents: write
+    
     steps:
       - name: Check out Test repository
         uses: actions/checkout@v4
