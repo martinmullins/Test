@@ -128,6 +128,7 @@ jobs:
           cd ${{ github.workspace }}
           CONFIG_FILE="${{ github.workspace }}/xenonrecomp_config.toml"
           PPC_CONTEXT_HEADER="${{ github.workspace }}/XenonRecomp/XenonUtils/ppc_context.h"
+          OUTPUT_DIR="${{ github.workspace }}/${{ inputs.output_directory }}"
           
           echo "Running XenonRecomp..."
           if ./XenonRecomp/build/XenonRecomp/XenonRecomp "$CONFIG_FILE" "$PPC_CONTEXT_HEADER"; then
@@ -139,7 +140,7 @@ jobs:
             echo "Please check the XenonRecomp documentation for more details"
             
             # Check if partial output was generated
-            if [ -d "${{ inputs.output_directory }}" ] && [ "$(ls -A ${{ inputs.output_directory }})" ]; then
+            if [ -d "$OUTPUT_DIR" ] && [ "$(ls -A $OUTPUT_DIR)" ]; then
               echo "Partial output was generated, continuing with workflow"
             else
               echo "No output was generated, failing workflow"
@@ -148,7 +149,7 @@ jobs:
           fi
           
           echo "Checking generated files:"
-          ls -lah "${{ inputs.output_directory }}" || echo "Output directory is empty or does not exist"
+          ls -lah "$OUTPUT_DIR" || echo "Output directory is empty or does not exist"
       
       - name: List generated C++ files
         run: |
@@ -172,8 +173,10 @@ jobs:
       
       - name: Commit and push generated files
         run: |
+          OUTPUT_DIR="${{ github.workspace }}/${{ inputs.output_directory }}"
+          
           # Check if output directory exists and has files
-          if [ ! -d "${{ inputs.output_directory }}" ]; then
+          if [ ! -d "$OUTPUT_DIR" ]; then
             echo "Output directory does not exist, nothing to commit"
             exit 0
           fi
