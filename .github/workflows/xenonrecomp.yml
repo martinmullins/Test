@@ -25,9 +25,9 @@ jobs:
       
       - name: Set up Clang 18
         run: |
-          # Add LLVM repository and install Clang 18
-          wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
-          sudo add-apt-repository "deb http://apt.llvm.org/$(lsb_release -cs)/ llvm-toolchain-$(lsb_release -cs)-18 main"
+          # Add LLVM repository and install Clang 18 using modern gpg method
+          wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/llvm.gpg
+          echo "deb https://apt.llvm.org/$(lsb_release -cs)/ llvm-toolchain-$(lsb_release -cs)-18 main" | sudo tee /etc/apt/sources.list.d/llvm.list
           sudo apt-get update
           sudo apt-get install -y clang-18 clang++-18
           sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-18 100
@@ -37,7 +37,6 @@ jobs:
       
       - name: Install CMake
         run: |
-          sudo apt-get update
           sudo apt-get install -y cmake
           cmake --version
       
@@ -104,7 +103,7 @@ jobs:
           JUMP_TABLES_FILE="${{ github.workspace }}/jump_tables.toml"
           CONFIG_FILE="${{ github.workspace }}/xenonrecomp_config.toml"
           
-          cat > "$CONFIG_FILE" << 'EOF'
+          cat > "$CONFIG_FILE" << EOF
           [main]
           file_path = "${{ inputs.xex_file_path }}"
           out_directory_path = "${{ inputs.output_directory }}"
