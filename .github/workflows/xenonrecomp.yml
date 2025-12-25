@@ -172,21 +172,21 @@ jobs:
           
           echo "Creating configuration file with absolute paths..."
           cat > "$CONFIG_FILE" << EOF
-          [main]
-          file_path = "$XEX_FILE"
-          out_directory_path = "$OUTPUT_DIR"
-          switch_table_file_path = "$JUMP_TABLES_FILE"
-          
-          [optimizations]
-          skip_lr = false
-          skip_msr = false
-          ctr_as_local = false
-          xer_as_local = false
-          reserved_as_local = false
-          cr_as_local = false
-          non_argument_as_local = false
-          non_volatile_as_local = false
-          EOF
+[main]
+file_path = "$XEX_FILE"
+out_directory_path = "$OUTPUT_DIR"
+switch_table_file_path = "$JUMP_TABLES_FILE"
+
+[optimizations]
+skip_lr = false
+skip_msr = false
+ctr_as_local = false
+xer_as_local = false
+reserved_as_local = false
+cr_as_local = false
+non_argument_as_local = false
+non_volatile_as_local = false
+EOF
           
           echo "Configuration file created:"
           cat "$CONFIG_FILE"
