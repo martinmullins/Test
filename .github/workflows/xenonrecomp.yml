@@ -1,3 +1,37 @@
+# XenonRecomp Workflow
+# 
+# This workflow automates the process of decompiling Xbox 360 executable (XEX) files
+# using the XenonRecomp tool, which converts PowerPC assembly to C++ source code.
+#
+# Purpose:
+# - Decompile XEX files to generate human-readable C++ code
+# - Detect and handle jump tables for better decompilation quality
+# - Commit generated C++ files back to the repository
+#
+# Workflow Steps:
+# 1. Set up build environment (Clang 18, CMake)
+# 2. Clone and build XenonRecomp from source
+# 3. Verify input XEX file exists
+# 4. Run XenonAnalyse to detect jump tables (optional, may not find any)
+# 5. Create configuration file with paths and optimization settings
+# 6. Run XenonRecomp to generate C++ files
+# 7. Commit and push generated files
+#
+# Troubleshooting:
+# - If XenonRecomp crashes with segmentation fault (exit code 139):
+#   * The XEX file may be incompatible or use unsupported features
+#   * Check the workflow logs for detailed error messages and core dumps
+#   * Partial output may still be generated and committed
+# - If no files are generated:
+#   * Verify the XEX file path is correct
+#   * Check that the XEX file is a valid Xbox 360 executable
+#   * Review XenonRecomp documentation for supported XEX formats
+# - Configuration options can be adjusted in the "Create XenonRecomp configuration file" step
+#
+# Manual Triggering:
+# - Navigate to Actions → XenonRecomp Workflow → Run workflow
+# - Specify the XEX file path (default: dolphin/dolphin.xex)
+# - Specify the output directory (default: generated_cpp)
 name: XenonRecomp Workflow
 
 on:
@@ -50,24 +84,45 @@ jobs:
           cd XenonRecomp
           git log -1 --oneline
       
+      # Build the XenonRecomp tool from source
+      # This compiles the XenonRecomp, XenonAnalyse, and XenonUtils components
       - name: Build XenonRecomp
         run: |
           cd ${{ github.workspace }}/XenonRecomp
           mkdir -p build
           cd build
+          
+          echo "Configuring CMake with Clang 18..."
           cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang-18 -DCMAKE_CXX_COMPILER=clang++-18
+          
+          echo "Building XenonRecomp..."
           cmake --build . --config Release
+          
           echo "Build completed"
+          echo "Built binaries:"
           ls -la
       
+      # Verify that the XEX file exists in the repository
+      # The XEX file must be committed to the repository before running this workflow
+      # Default path: dolphin/dolphin.xex
       - name: Verify XEX file exists
         run: |
           XEX_FILE="${{ github.workspace }}/${{ inputs.xex_file_path }}"
+          echo "Checking for XEX file at: $XEX_FILE"
+          
           if [ ! -f "$XEX_FILE" ]; then
             echo "ERROR: XEX file not found at $XEX_FILE"
+            echo ""
+            echo "Please ensure the XEX file is committed to the repository at:"
+            echo "  ${{ inputs.xex_file_path }}"
+            echo ""
+            echo "Available files in repository:"
+            find . -name "*.xex" -o -name "*.XEX" 2>/dev/null || echo "No XEX files found"
             exit 1
           fi
-          echo "XEX file found: $XEX_FILE"
+          
+          echo "✓ XEX file found: $XEX_FILE"
+          echo "File size: $(stat -c%s "$XEX_FILE" 2>/dev/null || echo "unknown") bytes"
           ls -lh "$XEX_FILE"
       
       - name: Create output directory
@@ -76,6 +131,9 @@ jobs:
           mkdir -p "$OUTPUT_DIR"
           echo "Output directory created: $OUTPUT_DIR"
       
+      # XenonAnalyse detects jump tables in the XEX file
+      # Jump tables are used for optimizing switch statements in the decompiled code
+      # This step may not find jump tables, which is acceptable for many XEX files
       - name: Run XenonAnalyse to detect jump tables
         run: |
           cd ${{ github.workspace }}/XenonRecomp/build
@@ -83,6 +141,9 @@ jobs:
           JUMP_TABLES_OUTPUT="${{ github.workspace }}/jump_tables.toml"
           
           echo "Running XenonAnalyse..."
+          echo "XEX File: $XEX_FILE"
+          echo "Output: $JUMP_TABLES_OUTPUT"
+          
           # XenonAnalyse may fail if no jump tables are detected, which is acceptable
           if ./XenonAnalyse/XenonAnalyse "$XEX_FILE" "$JUMP_TABLES_OUTPUT"; then
             echo "XenonAnalyse completed successfully"
@@ -99,6 +160,9 @@ jobs:
             touch "$JUMP_TABLES_OUTPUT"
           fi
       
+      # Create configuration file for XenonRecomp
+      # This file specifies input/output paths and optimization settings
+      # Using absolute paths to avoid any working directory issues
       - name: Create XenonRecomp configuration file
         run: |
           XEX_FILE="${{ github.workspace }}/${{ inputs.xex_file_path }}"
@@ -106,11 +170,12 @@ jobs:
           JUMP_TABLES_FILE="${{ github.workspace }}/jump_tables.toml"
           CONFIG_FILE="${{ github.workspace }}/xenonrecomp_config.toml"
           
+          echo "Creating configuration file with absolute paths..."
           cat > "$CONFIG_FILE" << EOF
           [main]
-          file_path = "${{ inputs.xex_file_path }}"
-          out_directory_path = "${{ inputs.output_directory }}"
-          switch_table_file_path = "jump_tables.toml"
+          file_path = "$XEX_FILE"
+          out_directory_path = "$OUTPUT_DIR"
+          switch_table_file_path = "$JUMP_TABLES_FILE"
           
           [optimizations]
           skip_lr = false
@@ -125,48 +190,192 @@ jobs:
           
           echo "Configuration file created:"
           cat "$CONFIG_FILE"
+          echo ""
+          echo "Verifying file paths in configuration..."
+          echo "XEX file exists: $(test -f "$XEX_FILE" && echo "YES" || echo "NO")"
+          echo "Output directory exists: $(test -d "$OUTPUT_DIR" && echo "YES" || echo "NO")"
+          echo "Jump tables file exists: $(test -f "$JUMP_TABLES_FILE" && echo "YES" || echo "NO")"
       
+      # Execute XenonRecomp to decompile the XEX file
+      # This step may fail with segmentation faults if the XEX file has compatibility issues
+      # Enhanced with detailed logging and error handling for troubleshooting
       - name: Run XenonRecomp to generate C++ files
         run: |
           cd ${{ github.workspace }}
           CONFIG_FILE="${{ github.workspace }}/xenonrecomp_config.toml"
           PPC_CONTEXT_HEADER="${{ github.workspace }}/XenonRecomp/XenonUtils/ppc_context.h"
           OUTPUT_DIR="${{ github.workspace }}/${{ inputs.output_directory }}"
+          XENONRECOMP_BINARY="${{ github.workspace }}/XenonRecomp/build/XenonRecomp/XenonRecomp"
           
+          echo "========================================="
+          echo "XenonRecomp Execution - Pre-flight Check"
+          echo "========================================="
+          echo "Working directory: $(pwd)"
+          echo "Config file: $CONFIG_FILE"
+          echo "PPC Context Header: $PPC_CONTEXT_HEADER"
+          echo "Output directory: $OUTPUT_DIR"
+          echo "XenonRecomp binary: $XENONRECOMP_BINARY"
+          echo ""
+          
+          echo "Validating inputs..."
+          if [ ! -f "$CONFIG_FILE" ]; then
+            echo "ERROR: Config file not found at $CONFIG_FILE"
+            exit 1
+          fi
+          echo "✓ Config file exists"
+          
+          if [ ! -f "$PPC_CONTEXT_HEADER" ]; then
+            echo "ERROR: PPC context header not found at $PPC_CONTEXT_HEADER"
+            exit 1
+          fi
+          echo "✓ PPC context header exists"
+          
+          if [ ! -f "$XENONRECOMP_BINARY" ]; then
+            echo "ERROR: XenonRecomp binary not found at $XENONRECOMP_BINARY"
+            exit 1
+          fi
+          echo "✓ XenonRecomp binary exists"
+          
+          if [ ! -x "$XENONRECOMP_BINARY" ]; then
+            echo "WARNING: XenonRecomp binary is not executable, attempting to fix..."
+            chmod +x "$XENONRECOMP_BINARY"
+          fi
+          echo "✓ XenonRecomp binary is executable"
+          
+          echo ""
+          echo "Configuration file contents:"
+          echo "----------------------------"
+          cat "$CONFIG_FILE"
+          echo "----------------------------"
+          echo ""
+          
+          # Enable core dumps for debugging segmentation faults
+          ulimit -c unlimited
+          echo "Core dumps enabled (ulimit -c: $(ulimit -c))"
+          echo ""
+          
+          echo "========================================="
           echo "Running XenonRecomp..."
-          if ./XenonRecomp/build/XenonRecomp/XenonRecomp "$CONFIG_FILE" "$PPC_CONTEXT_HEADER"; then
-            echo "XenonRecomp completed successfully"
+          echo "========================================="
+          
+          # Run XenonRecomp with error handling
+          set +e  # Don't exit on error
+          "$XENONRECOMP_BINARY" "$CONFIG_FILE" "$PPC_CONTEXT_HEADER"
+          EXIT_CODE=$?
+          set -e  # Re-enable exit on error
+          
+          echo ""
+          echo "========================================="
+          echo "XenonRecomp Exit Code: $EXIT_CODE"
+          echo "========================================="
+          
+          if [ $EXIT_CODE -eq 0 ]; then
+            echo "✓ XenonRecomp completed successfully"
+          elif [ $EXIT_CODE -eq 139 ]; then
+            echo "ERROR: XenonRecomp crashed with segmentation fault (exit code 139)"
+            echo ""
+            echo "Troubleshooting Information:"
+            echo "- The XEX file may be incompatible or corrupted"
+            echo "- The XenonRecomp binary may have issues with this specific XEX format"
+            echo "- Check if there are core dump files for detailed debugging"
+            echo ""
+            
+            # Check for core dumps
+            if ls core* 2>/dev/null | grep -q .; then
+              echo "Core dump files found:"
+              ls -lh core* 2>/dev/null
+              echo ""
+              echo "To debug, download the core file and run:"
+              echo "gdb $XENONRECOMP_BINARY core"
+            else
+              echo "No core dump files found"
+            fi
+            
+            # Check if any output was generated before the crash
+            if [ -d "$OUTPUT_DIR" ] && [ "$(ls -A $OUTPUT_DIR 2>/dev/null)" ]; then
+              echo ""
+              echo "Partial output was generated before crash:"
+              ls -lah "$OUTPUT_DIR"
+              echo ""
+              echo "Continuing workflow with partial results..."
+            else
+              echo ""
+              echo "No output was generated before crash"
+              exit 1
+            fi
           else
-            EXIT_CODE=$?
             echo "ERROR: XenonRecomp failed with exit code $EXIT_CODE"
+            echo ""
             echo "The XEX file may require additional configuration or analysis"
             echo "Please check the XenonRecomp documentation for more details"
+            echo ""
             
             # Check if partial output was generated
-            if [ -d "$OUTPUT_DIR" ] && [ "$(ls -A $OUTPUT_DIR)" ]; then
-              echo "Partial output was generated, continuing with workflow"
+            if [ -d "$OUTPUT_DIR" ] && [ "$(ls -A $OUTPUT_DIR 2>/dev/null)" ]; then
+              echo "Partial output was generated:"
+              ls -lah "$OUTPUT_DIR"
+              echo ""
+              echo "Continuing workflow with partial results..."
             else
-              echo "No output was generated, failing workflow"
+              echo "No output was generated"
               exit 1
             fi
           fi
           
+          echo ""
           echo "Checking generated files:"
-          ls -lah "$OUTPUT_DIR" || echo "Output directory is empty or does not exist"
+          if [ -d "$OUTPUT_DIR" ]; then
+            FILE_COUNT=$(find "$OUTPUT_DIR" -type f | wc -l)
+            echo "Total files generated: $FILE_COUNT"
+            if [ $FILE_COUNT -gt 0 ]; then
+              echo "Sample of generated files:"
+              find "$OUTPUT_DIR" -type f | head -20
+            fi
+          else
+            echo "Output directory does not exist"
+          fi
       
+      # Display a summary of generated C++ files
+      # This helps verify the decompilation was successful
       - name: List generated C++ files
+        if: always()  # Run even if previous step had issues
         run: |
           OUTPUT_DIR="${{ github.workspace }}/${{ inputs.output_directory }}"
-          if [ -d "$OUTPUT_DIR" ]; then
-            echo "Generated C++ files:"
-            find "$OUTPUT_DIR" -type f -name "*.cpp" -o -name "*.h" | head -20
-            
-            echo ""
-            echo "Total file count:"
-            find "$OUTPUT_DIR" -type f | wc -l
-          else
-            echo "No output directory found"
+          
+          echo "========================================="
+          echo "Generated Files Summary"
+          echo "========================================="
+          
+          if [ ! -d "$OUTPUT_DIR" ]; then
+            echo "ERROR: Output directory does not exist at $OUTPUT_DIR"
             exit 1
+          fi
+          
+          FILE_COUNT=$(find "$OUTPUT_DIR" -type f 2>/dev/null | wc -l)
+          echo "Output directory: $OUTPUT_DIR"
+          echo "Total files generated: $FILE_COUNT"
+          echo ""
+          
+          if [ $FILE_COUNT -eq 0 ]; then
+            echo "WARNING: No files were generated"
+            echo "This may indicate XenonRecomp failed or crashed before generating output"
+            exit 1
+          fi
+          
+          echo "Generated C++ and header files:"
+          find "$OUTPUT_DIR" -type f \( -name "*.cpp" -o -name "*.h" \) | head -20
+          
+          CPP_COUNT=$(find "$OUTPUT_DIR" -name "*.cpp" 2>/dev/null | wc -l)
+          H_COUNT=$(find "$OUTPUT_DIR" -name "*.h" 2>/dev/null | wc -l)
+          echo ""
+          echo "Statistics:"
+          echo "  C++ files (.cpp): $CPP_COUNT"
+          echo "  Header files (.h): $H_COUNT"
+          echo "  Total: $FILE_COUNT"
+          
+          if [ $FILE_COUNT -gt 20 ]; then
+            echo ""
+            echo "Note: Only showing first 20 files. Full list available in artifacts."
           fi
       
       - name: Configure Git
