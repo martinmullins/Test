@@ -145,7 +145,7 @@ jobs:
           echo "Output: $JUMP_TABLES_OUTPUT"
           
           # XenonAnalyse may fail if no jump tables are detected, which is acceptable
-          if ./XenonAnalyse/XenonAnalyse "$XEX_FILE" "$JUMP_TABLES_OUTPUT"; then
+          if ./XenonAnalyse "$XEX_FILE" "$JUMP_TABLES_OUTPUT"; then
             echo "XenonAnalyse completed successfully"
           else
             EXIT_CODE=$?
