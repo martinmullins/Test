@@ -1,27 +1,16 @@
-# Assuming the workflow file content includes existing steps up to file validation.
-name: Xenon Recomp Build
+name: Xenon Recomp
 
-offer:
+on:
   push:
-    branches:
-      - main
+    paths:
+      - '.github/workflows/xenonrecomp.yml'
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v2
+    - name: Checkout code
+      uses: actions/checkout@v2
 
-      - name: Validate Files
-        run: |
-          # Your file validation commands here
-
-      # Debugging After Validation
-      - name: Debug Workspace Files
-        run: |
-          find . -type f
-      - name: Print Environment Variables
-        run: |
-          echo "XEX_FILE=${{ env.XEX_FILE }}"
-          echo "CONFIG_FILE=${{ env.CONFIG_FILE }}"
-          echo "PPC_CONTEXT_HEADER=${{ env.PPC_CONTEXT_HEADER }}"
+    - name: Restore Xenon Recomp
+      run: echo 'Restoring previous version of Xenon Recomp workflow.'
