@@ -281,9 +281,9 @@ jobs:
             echo ""
             
             # Check for core dumps
-            if ls core* 2>/dev/null | grep -q .; then
+            if ls core.* core 2>/dev/null | grep -q .; then
               echo "Core dump files found:"
-              ls -lh core* 2>/dev/null
+              ls -lh core.* core 2>/dev/null
               echo ""
               echo "To debug, download the core file and run:"
               echo "gdb $XENONRECOMP_BINARY core"
@@ -393,7 +393,7 @@ jobs:
             exit 0
           fi
           
-          git add ${{ inputs.output_directory }}
+          git add "${{ inputs.output_directory }}"
           
           # Add jump tables file if it exists
           if [ -f "jump_tables.toml" ]; then
