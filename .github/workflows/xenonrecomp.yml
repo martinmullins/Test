@@ -195,7 +195,8 @@ jobs:
           echo "Creating configuration file with absolute paths..."
           echo "Has jump tables: $HAS_JUMP_TABLES"
           
-          # Create the main section using printf to avoid YAML heredoc indentation issues
+          # Create the [main] section with all config options
+          # Note: XenonRecomp expects ALL config keys inside [main], not in separate tables
           {
             printf '[main]\n'
             printf 'file_path = "%s"\n' "$XEX_FILE"
@@ -210,9 +211,10 @@ jobs:
             echo "Skipping switch_table_file_path (no jump tables detected)"
           fi
           
-          # Add optimizations section
+          # Add optimization flags (all inside [main] section, not a separate table)
+          # These are disabled by default for initial recompilation attempts
           {
-            printf '\n[optimizations]\n'
+            printf '\n# Optimization flags (keep disabled until recompilation works)\n'
             printf 'skip_lr = false\n'
             printf 'skip_msr = false\n'
             printf 'ctr_as_local = false\n'
@@ -300,6 +302,18 @@ jobs:
           "$XENONRECOMP_BINARY" "$CONFIG_FILE" "$PPC_CONTEXT_HEADER"
           EXIT_CODE=$?
           set -e  # Re-enable exit on error
+          
+          # If XenonRecomp crashed, try to get a backtrace with gdb
+          if [ $EXIT_CODE -eq 139 ]; then
+            echo ""
+            echo "========================================="
+            echo "Attempting to get backtrace with gdb..."
+            echo "========================================="
+            sudo apt-get update -qq && sudo apt-get install -y -qq gdb
+            set +e
+            gdb --batch -ex "run" -ex "bt full" -ex "quit" --args "$XENONRECOMP_BINARY" "$CONFIG_FILE" "$PPC_CONTEXT_HEADER" 2>&1 || echo "gdb failed to run"
+            set -e
+          fi
           
           echo ""
           echo "========================================="
