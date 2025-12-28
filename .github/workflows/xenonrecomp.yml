@@ -135,47 +135,83 @@ jobs:
       # Jump tables are used for optimizing switch statements in the decompiled code
       # This step may not find jump tables, which is acceptable for many XEX files
       - name: Run XenonAnalyse to detect jump tables
+        id: xenonanalyse
         run: |
           cd ${{ github.workspace }}/XenonRecomp/build
           XEX_FILE="${{ github.workspace }}/${{ inputs.xex_file_path }}"
           JUMP_TABLES_OUTPUT="${{ github.workspace }}/jump_tables.toml"
+          XENONANALYSE_BINARY="./XenonAnalyse/XenonAnalyse"
           
           echo "Running XenonAnalyse..."
           echo "XEX File: $XEX_FILE"
           echo "Output: $JUMP_TABLES_OUTPUT"
+          echo "XenonAnalyse binary: $XENONANALYSE_BINARY"
+          
+          # Verify the binary exists
+          if [ ! -f "$XENONANALYSE_BINARY" ]; then
+            echo "WARNING: XenonAnalyse binary not found at $XENONANALYSE_BINARY"
+            echo "Listing build directory contents:"
+            ls -la
+            ls -la XenonAnalyse/ 2>/dev/null || echo "XenonAnalyse directory not found"
+            echo "has_jump_tables=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
           
           # XenonAnalyse may fail if no jump tables are detected, which is acceptable
-          if ./XenonAnalyse "$XEX_FILE" "$JUMP_TABLES_OUTPUT"; then
+          set +e
+          "$XENONANALYSE_BINARY" "$XEX_FILE" "$JUMP_TABLES_OUTPUT"
+          EXIT_CODE=$?
+          set -e
+          
+          if [ $EXIT_CODE -eq 0 ]; then
             echo "XenonAnalyse completed successfully"
           else
-            EXIT_CODE=$?
             echo "XenonAnalyse exited with code $EXIT_CODE (this may be expected if no jump tables found)"
           fi
           
-          if [ -f "$JUMP_TABLES_OUTPUT" ]; then
+          # Check if jump tables file was generated and has content
+          if [ -f "$JUMP_TABLES_OUTPUT" ] && [ -s "$JUMP_TABLES_OUTPUT" ]; then
             echo "Jump tables TOML generated:"
             head -n 20 "$JUMP_TABLES_OUTPUT"
+            echo "has_jump_tables=true" >> $GITHUB_OUTPUT
           else
-            echo "No jump tables TOML generated, creating empty file"
-            touch "$JUMP_TABLES_OUTPUT"
+            echo "No jump tables detected or file is empty"
+            rm -f "$JUMP_TABLES_OUTPUT"
+            echo "has_jump_tables=false" >> $GITHUB_OUTPUT
           fi
       
       # Create configuration file for XenonRecomp
       # This file specifies input/output paths and optimization settings
       # Using absolute paths to avoid any working directory issues
+      # Only includes switch_table_file_path if jump tables were detected
       - name: Create XenonRecomp configuration file
         run: |
           XEX_FILE="${{ github.workspace }}/${{ inputs.xex_file_path }}"
           OUTPUT_DIR="${{ github.workspace }}/${{ inputs.output_directory }}"
           JUMP_TABLES_FILE="${{ github.workspace }}/jump_tables.toml"
           CONFIG_FILE="${{ github.workspace }}/xenonrecomp_config.toml"
+          HAS_JUMP_TABLES="${{ steps.xenonanalyse.outputs.has_jump_tables }}"
           
           echo "Creating configuration file with absolute paths..."
+          echo "Has jump tables: $HAS_JUMP_TABLES"
+          
+          # Start with the main section
           cat > "$CONFIG_FILE" << EOF
 [main]
 file_path = "$XEX_FILE"
 out_directory_path = "$OUTPUT_DIR"
-switch_table_file_path = "$JUMP_TABLES_FILE"
+EOF
+          
+          # Only add switch_table_file_path if jump tables were detected
+          if [ "$HAS_JUMP_TABLES" = "true" ] && [ -f "$JUMP_TABLES_FILE" ]; then
+            echo "switch_table_file_path = \"$JUMP_TABLES_FILE\"" >> "$CONFIG_FILE"
+            echo "Including jump tables file in configuration"
+          else
+            echo "Skipping switch_table_file_path (no jump tables detected)"
+          fi
+          
+          # Add optimizations section
+          cat >> "$CONFIG_FILE" << EOF
 
 [optimizations]
 skip_lr = false
@@ -194,7 +230,9 @@ EOF
           echo "Verifying file paths in configuration..."
           echo "XEX file exists: $(test -f "$XEX_FILE" && echo "YES" || echo "NO")"
           echo "Output directory exists: $(test -d "$OUTPUT_DIR" && echo "YES" || echo "NO")"
-          echo "Jump tables file exists: $(test -f "$JUMP_TABLES_FILE" && echo "YES" || echo "NO")"
+          if [ "$HAS_JUMP_TABLES" = "true" ]; then
+            echo "Jump tables file exists: $(test -f "$JUMP_TABLES_FILE" && echo "YES" || echo "NO")"
+          fi
       
       # Execute XenonRecomp to decompile the XEX file
       # This step may fail with segmentation faults if the XEX file has compatibility issues
