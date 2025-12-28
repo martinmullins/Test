@@ -195,34 +195,33 @@ jobs:
           echo "Creating configuration file with absolute paths..."
           echo "Has jump tables: $HAS_JUMP_TABLES"
           
-          # Start with the main section
-          cat > "$CONFIG_FILE" << EOF
-[main]
-file_path = "$XEX_FILE"
-out_directory_path = "$OUTPUT_DIR"
-EOF
+          # Create the main section using printf to avoid YAML heredoc indentation issues
+          {
+            printf '[main]\n'
+            printf 'file_path = "%s"\n' "$XEX_FILE"
+            printf 'out_directory_path = "%s"\n' "$OUTPUT_DIR"
+          } > "$CONFIG_FILE"
           
           # Only add switch_table_file_path if jump tables were detected
           if [ "$HAS_JUMP_TABLES" = "true" ] && [ -f "$JUMP_TABLES_FILE" ]; then
-            echo "switch_table_file_path = \"$JUMP_TABLES_FILE\"" >> "$CONFIG_FILE"
+            printf 'switch_table_file_path = "%s"\n' "$JUMP_TABLES_FILE" >> "$CONFIG_FILE"
             echo "Including jump tables file in configuration"
           else
             echo "Skipping switch_table_file_path (no jump tables detected)"
           fi
           
           # Add optimizations section
-          cat >> "$CONFIG_FILE" << EOF
-
-[optimizations]
-skip_lr = false
-skip_msr = false
-ctr_as_local = false
-xer_as_local = false
-reserved_as_local = false
-cr_as_local = false
-non_argument_as_local = false
-non_volatile_as_local = false
-EOF
+          {
+            printf '\n[optimizations]\n'
+            printf 'skip_lr = false\n'
+            printf 'skip_msr = false\n'
+            printf 'ctr_as_local = false\n'
+            printf 'xer_as_local = false\n'
+            printf 'reserved_as_local = false\n'
+            printf 'cr_as_local = false\n'
+            printf 'non_argument_as_local = false\n'
+            printf 'non_volatile_as_local = false\n'
+          } >> "$CONFIG_FILE"
           
           echo "Configuration file created:"
           cat "$CONFIG_FILE"
