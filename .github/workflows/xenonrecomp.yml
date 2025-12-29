@@ -84,6 +84,29 @@ jobs:
           cd XenonRecomp
           git log -1 --oneline
       
+      # Clone and build xex1tool for XEX decryption
+      # xex1tool supports devkit, retail, and pre-release encryption keys
+      # This is needed because dolphin.xex is encrypted with a devkit key,
+      # which XenonRecomp doesn't support natively
+      - name: Clone and build xex1tool
+        run: |
+          cd ${{ github.workspace }}
+          echo "Cloning idaxex repository (contains xex1tool)..."
+          git clone --recursive https://github.com/emoose/idaxex.git
+          cd idaxex
+          git log -1 --oneline
+          
+          echo "Building xex1tool..."
+          cd xex1tool
+          mkdir -p build
+          cd build
+          cmake ..
+          make -j$(nproc)
+          
+          echo "xex1tool built successfully:"
+          ls -la xex1tool
+          ./xex1tool 2>&1 || true
+      
       # Build the XenonRecomp tool from source
       # This compiles the XenonRecomp, XenonAnalyse, and XenonUtils components
       # Using RelWithDebInfo to get debug symbols for better crash diagnostics
@@ -227,6 +250,55 @@ jobs:
           print("\nXEX header validation passed!")
           PYEOF
       
+      # Decrypt the XEX file using xex1tool
+      # This step extracts the decrypted basefile (PE) from the XEX
+      # xex1tool supports devkit, retail, and pre-release encryption keys
+      # The decrypted file will be used by XenonRecomp instead of the encrypted XEX
+      - name: Decrypt XEX file using xex1tool
+        id: decrypt_xex
+        run: |
+          XEX_FILE="${{ github.workspace }}/${{ inputs.xex_file_path }}"
+          XEX1TOOL="${{ github.workspace }}/idaxex/xex1tool/build/xex1tool"
+          DECRYPTED_DIR="${{ github.workspace }}/decrypted"
+          DECRYPTED_FILE="$DECRYPTED_DIR/basefile.bin"
+          
+          echo "========================================="
+          echo "XEX Decryption using xex1tool"
+          echo "========================================="
+          
+          # Create output directory for decrypted file
+          mkdir -p "$DECRYPTED_DIR"
+          
+          # First, list XEX info to see encryption type
+          echo "Analyzing XEX file..."
+          "$XEX1TOOL" -l "$XEX_FILE" 2>&1 || true
+          echo ""
+          
+          # Extract the decrypted basefile
+          echo "Extracting decrypted basefile..."
+          "$XEX1TOOL" -b "$DECRYPTED_FILE" "$XEX_FILE"
+          
+          if [ -f "$DECRYPTED_FILE" ]; then
+            echo "Decrypted basefile extracted successfully!"
+            echo "File size: $(stat -c%s "$DECRYPTED_FILE") bytes"
+            
+            # Verify the decrypted file starts with MZ (PE header)
+            MAGIC=$(xxd -l 2 -p "$DECRYPTED_FILE")
+            if [ "$MAGIC" = "4d5a" ]; then
+              echo "Verified: Decrypted file has valid PE header (MZ)"
+            else
+              echo "WARNING: Decrypted file does not start with MZ (got: $MAGIC)"
+              echo "This may indicate decryption issues"
+            fi
+            
+            # Output the path for use in later steps
+            echo "decrypted_file=$DECRYPTED_FILE" >> $GITHUB_OUTPUT
+            echo "decrypted_dir=$DECRYPTED_DIR" >> $GITHUB_OUTPUT
+          else
+            echo "ERROR: Failed to extract decrypted basefile"
+            exit 1
+          fi
+      
       - name: Create output directory
         run: |
           OUTPUT_DIR="${{ github.workspace }}/${{ inputs.output_directory }}"
@@ -288,38 +360,50 @@ jobs:
       # It concatenates config.directoryPath + config.filePath internally,
       # so using absolute paths would create invalid paths like:
       # /home/runner/work/Test/Test//home/runner/work/Test/Test/dolphin/dolphin.xex
+      # 
+      # NOTE: We now use the DECRYPTED basefile instead of the encrypted XEX!
+      # The decrypted file was extracted by xex1tool in the previous step.
       # Only includes switch_table_file_path if jump tables were detected
       - name: Create XenonRecomp configuration file
         run: |
           # Use RELATIVE paths for XenonRecomp config (it will prepend directoryPath)
-          XEX_FILE_RELATIVE="${{ inputs.xex_file_path }}"
+          # Point to the decrypted basefile instead of the encrypted XEX
+          DECRYPTED_FILE_RELATIVE="decrypted/basefile.bin"
           OUTPUT_DIR_RELATIVE="${{ inputs.output_directory }}"
           JUMP_TABLES_FILE_RELATIVE="jump_tables.toml"
           CONFIG_FILE="${{ github.workspace }}/xenonrecomp_config.toml"
           HAS_JUMP_TABLES="${{ steps.xenonanalyse.outputs.has_jump_tables }}"
           
           # Absolute paths for verification only
-          XEX_FILE_ABSOLUTE="${{ github.workspace }}/${{ inputs.xex_file_path }}"
+          DECRYPTED_FILE_ABSOLUTE="${{ steps.decrypt_xex.outputs.decrypted_file }}"
           OUTPUT_DIR_ABSOLUTE="${{ github.workspace }}/${{ inputs.output_directory }}"
           JUMP_TABLES_FILE_ABSOLUTE="${{ github.workspace }}/jump_tables.toml"
           
           echo "Creating configuration file with RELATIVE paths..."
+          echo "Using DECRYPTED basefile instead of encrypted XEX"
           echo "Has jump tables: $HAS_JUMP_TABLES"
           echo ""
           echo "Relative paths (for config):"
-          echo "  file_path: $XEX_FILE_RELATIVE"
+          echo "  file_path: $DECRYPTED_FILE_RELATIVE"
           echo "  out_directory_path: $OUTPUT_DIR_RELATIVE"
           echo "  switch_table_file_path: $JUMP_TABLES_FILE_RELATIVE"
           echo ""
           echo "Absolute paths (for verification):"
-          echo "  XEX file: $XEX_FILE_ABSOLUTE"
+          echo "  Decrypted file: $DECRYPTED_FILE_ABSOLUTE"
           echo "  Output dir: $OUTPUT_DIR_ABSOLUTE"
+          
+          # Verify decrypted file exists
+          if [ ! -f "$DECRYPTED_FILE_ABSOLUTE" ]; then
+            echo "ERROR: Decrypted file not found at $DECRYPTED_FILE_ABSOLUTE"
+            exit 1
+          fi
+          echo "Decrypted file exists: YES"
           
           # Create the [main] section with all config options
           # Note: XenonRecomp expects ALL config keys inside [main], not in separate tables
           {
             printf '[main]\n'
-            printf 'file_path = "%s"\n' "$XEX_FILE_RELATIVE"
+            printf 'file_path = "%s"\n' "$DECRYPTED_FILE_RELATIVE"
             printf 'out_directory_path = "%s"\n' "$OUTPUT_DIR_RELATIVE"
           } > "$CONFIG_FILE"
           
