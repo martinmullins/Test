@@ -284,30 +284,48 @@ jobs:
       
       # Create configuration file for XenonRecomp
       # This file specifies input/output paths and optimization settings
-      # Using absolute paths to avoid any working directory issues
+      # IMPORTANT: XenonRecomp expects RELATIVE paths in the config file!
+      # It concatenates config.directoryPath + config.filePath internally,
+      # so using absolute paths would create invalid paths like:
+      # /home/runner/work/Test/Test//home/runner/work/Test/Test/dolphin/dolphin.xex
       # Only includes switch_table_file_path if jump tables were detected
       - name: Create XenonRecomp configuration file
         run: |
-          XEX_FILE="${{ github.workspace }}/${{ inputs.xex_file_path }}"
-          OUTPUT_DIR="${{ github.workspace }}/${{ inputs.output_directory }}"
-          JUMP_TABLES_FILE="${{ github.workspace }}/jump_tables.toml"
+          # Use RELATIVE paths for XenonRecomp config (it will prepend directoryPath)
+          XEX_FILE_RELATIVE="${{ inputs.xex_file_path }}"
+          OUTPUT_DIR_RELATIVE="${{ inputs.output_directory }}"
+          JUMP_TABLES_FILE_RELATIVE="jump_tables.toml"
           CONFIG_FILE="${{ github.workspace }}/xenonrecomp_config.toml"
           HAS_JUMP_TABLES="${{ steps.xenonanalyse.outputs.has_jump_tables }}"
           
-          echo "Creating configuration file with absolute paths..."
+          # Absolute paths for verification only
+          XEX_FILE_ABSOLUTE="${{ github.workspace }}/${{ inputs.xex_file_path }}"
+          OUTPUT_DIR_ABSOLUTE="${{ github.workspace }}/${{ inputs.output_directory }}"
+          JUMP_TABLES_FILE_ABSOLUTE="${{ github.workspace }}/jump_tables.toml"
+          
+          echo "Creating configuration file with RELATIVE paths..."
           echo "Has jump tables: $HAS_JUMP_TABLES"
+          echo ""
+          echo "Relative paths (for config):"
+          echo "  file_path: $XEX_FILE_RELATIVE"
+          echo "  out_directory_path: $OUTPUT_DIR_RELATIVE"
+          echo "  switch_table_file_path: $JUMP_TABLES_FILE_RELATIVE"
+          echo ""
+          echo "Absolute paths (for verification):"
+          echo "  XEX file: $XEX_FILE_ABSOLUTE"
+          echo "  Output dir: $OUTPUT_DIR_ABSOLUTE"
           
           # Create the [main] section with all config options
           # Note: XenonRecomp expects ALL config keys inside [main], not in separate tables
           {
             printf '[main]\n'
-            printf 'file_path = "%s"\n' "$XEX_FILE"
-            printf 'out_directory_path = "%s"\n' "$OUTPUT_DIR"
+            printf 'file_path = "%s"\n' "$XEX_FILE_RELATIVE"
+            printf 'out_directory_path = "%s"\n' "$OUTPUT_DIR_RELATIVE"
           } > "$CONFIG_FILE"
           
           # Only add switch_table_file_path if jump tables were detected
-          if [ "$HAS_JUMP_TABLES" = "true" ] && [ -f "$JUMP_TABLES_FILE" ]; then
-            printf 'switch_table_file_path = "%s"\n' "$JUMP_TABLES_FILE" >> "$CONFIG_FILE"
+          if [ "$HAS_JUMP_TABLES" = "true" ] && [ -f "$JUMP_TABLES_FILE_ABSOLUTE" ]; then
+            printf 'switch_table_file_path = "%s"\n' "$JUMP_TABLES_FILE_RELATIVE" >> "$CONFIG_FILE"
             echo "Including jump tables file in configuration"
           else
             echo "Skipping switch_table_file_path (no jump tables detected)"
