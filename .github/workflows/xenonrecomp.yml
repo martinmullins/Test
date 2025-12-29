@@ -86,17 +86,18 @@ jobs:
       
       # Build the XenonRecomp tool from source
       # This compiles the XenonRecomp, XenonAnalyse, and XenonUtils components
+      # Using RelWithDebInfo to get debug symbols for better crash diagnostics
       - name: Build XenonRecomp
         run: |
           cd ${{ github.workspace }}/XenonRecomp
           mkdir -p build
           cd build
           
-          echo "Configuring CMake with Clang 18..."
-          cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang-18 -DCMAKE_CXX_COMPILER=clang++-18
+          echo "Configuring CMake with Clang 18 (RelWithDebInfo for debug symbols)..."
+          cmake .. -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_C_COMPILER=clang-18 -DCMAKE_CXX_COMPILER=clang++-18 -DCMAKE_CXX_FLAGS="-fno-omit-frame-pointer -g"
           
           echo "Building XenonRecomp..."
-          cmake --build . --config Release
+          cmake --build . --config RelWithDebInfo
           
           echo "Build completed"
           echo "Built binaries:"
@@ -121,9 +122,110 @@ jobs:
             exit 1
           fi
           
-          echo "✓ XEX file found: $XEX_FILE"
+          echo "XEX file found: $XEX_FILE"
           echo "File size: $(stat -c%s "$XEX_FILE" 2>/dev/null || echo "unknown") bytes"
           ls -lh "$XEX_FILE"
+      
+      # Parse and validate XEX headers to help diagnose any issues
+      # This step dumps the XEX header structure to help debug crashes
+      - name: Validate XEX file headers
+        run: |
+          XEX_FILE="${{ github.workspace }}/${{ inputs.xex_file_path }}"
+          echo "========================================="
+          echo "XEX Header Analysis"
+          echo "========================================="
+          
+          python3 << PYEOF
+          import struct
+          import hashlib
+
+          with open('$XEX_FILE', 'rb') as f:
+              data = f.read()
+
+          print(f"File size: {len(data)} bytes")
+          print(f"SHA256: {hashlib.sha256(data).hexdigest()}")
+          print()
+
+          # Check magic
+          magic = data[0:4]
+          if magic != b'XEX2':
+              print(f"ERROR: Invalid magic bytes: {magic.hex()} (expected 58455832 for XEX2)")
+              exit(1)
+
+          # Parse XEX2 header
+          module_flags = struct.unpack('>I', data[4:8])[0]
+          header_size = struct.unpack('>I', data[8:12])[0]
+          security_offset = struct.unpack('>I', data[16:20])[0]
+          header_count = struct.unpack('>I', data[20:24])[0]
+
+          print("=== XEX2 Header ===")
+          print(f"Magic: XEX2")
+          print(f"Module Flags: 0x{module_flags:08X}")
+          print(f"Header Size: {header_size} (0x{header_size:X})")
+          print(f"Security Offset: {security_offset} (0x{security_offset:X})")
+          print(f"Header Count: {header_count}")
+
+          # Parse optional headers
+          print(f"\n=== Optional Headers ({header_count} total) ===")
+          opt_header_offset = 24
+          file_format_info_offset = None
+          
+          for i in range(header_count):
+              key = struct.unpack('>I', data[opt_header_offset:opt_header_offset+4])[0]
+              value = struct.unpack('>I', data[opt_header_offset+4:opt_header_offset+8])[0]
+              
+              key_names = {
+                  0x000003FF: "FILE_FORMAT_INFO",
+                  0x000005FF: "DELTA_PATCH_DESCRIPTOR",
+                  0x00010100: "ENTRY_POINT",
+                  0x00010201: "IMAGE_BASE_ADDRESS",
+                  0x000103FF: "IMPORT_LIBRARIES",
+              }
+              
+              key_name = key_names.get(key, f"0x{key:08X}")
+              print(f"  [{i}] {key_name}: 0x{value:08X}")
+              
+              if key == 0x000003FF:
+                  file_format_info_offset = value
+              if key == 0x000005FF:
+                  print("    *** WARNING: DELTA_PATCH_DESCRIPTOR found - this XEX may require a base file ***")
+              
+              opt_header_offset += 8
+
+          # Parse FILE_FORMAT_INFO if found
+          if file_format_info_offset:
+              info_size = struct.unpack('>I', data[file_format_info_offset:file_format_info_offset+4])[0]
+              encryption_type = struct.unpack('>H', data[file_format_info_offset+4:file_format_info_offset+6])[0]
+              compression_type = struct.unpack('>H', data[file_format_info_offset+6:file_format_info_offset+8])[0]
+              
+              compression_names = {0: "NONE", 1: "BASIC", 2: "NORMAL", 3: "DELTA"}
+              encryption_names = {0: "NONE", 1: "NORMAL"}
+              
+              print(f"\n=== FILE_FORMAT_INFO ===")
+              print(f"  Info Size: {info_size}")
+              print(f"  Encryption: {encryption_names.get(encryption_type, 'UNKNOWN')} ({encryption_type})")
+              print(f"  Compression: {compression_names.get(compression_type, 'UNKNOWN')} ({compression_type})")
+              
+              if compression_type == 3:
+                  print("\n  *** ERROR: DELTA compression is NOT supported by XenonRecomp! ***")
+                  print("  This XEX requires a base XEX file to decompress.")
+                  exit(1)
+              
+              if compression_type > 2:
+                  print(f"\n  *** WARNING: Unknown compression type {compression_type} ***")
+
+          # Parse security info
+          print(f"\n=== Security Info ===")
+          sec_header_size = struct.unpack('>I', data[security_offset:security_offset+4])[0]
+          image_size = struct.unpack('>I', data[security_offset+4:security_offset+8])[0]
+          print(f"  Security Header Size: {sec_header_size}")
+          print(f"  Image Size: {image_size} (0x{image_size:X})")
+
+          print("\n=== First 64 bytes (hex) ===")
+          print(data[:64].hex())
+          
+          print("\nXEX header validation passed!")
+          PYEOF
       
       - name: Create output directory
         run: |
@@ -303,15 +405,30 @@ jobs:
           EXIT_CODE=$?
           set -e  # Re-enable exit on error
           
-          # If XenonRecomp crashed, try to get a backtrace with gdb
+          # If XenonRecomp crashed, try to get a detailed backtrace with gdb
+          # The binary is built with RelWithDebInfo so we should get file:line info
           if [ $EXIT_CODE -eq 139 ]; then
             echo ""
             echo "========================================="
-            echo "Attempting to get backtrace with gdb..."
+            echo "Segmentation fault detected! Getting detailed backtrace with gdb..."
             echo "========================================="
             sudo apt-get update -qq && sudo apt-get install -y -qq gdb
             set +e
-            gdb --batch -ex "run" -ex "bt full" -ex "quit" --args "$XENONRECOMP_BINARY" "$CONFIG_FILE" "$PPC_CONTEXT_HEADER" 2>&1 || echo "gdb failed to run"
+            # Run with gdb to get detailed backtrace with file:line information
+            gdb --batch \
+              -ex "set print frame-arguments all" \
+              -ex "set print pretty on" \
+              -ex "run" \
+              -ex "echo \n=== BACKTRACE ===\n" \
+              -ex "bt full" \
+              -ex "echo \n=== REGISTERS ===\n" \
+              -ex "info registers" \
+              -ex "echo \n=== CURRENT FRAME INFO ===\n" \
+              -ex "info frame" \
+              -ex "echo \n=== LOCAL VARIABLES ===\n" \
+              -ex "info locals" \
+              -ex "quit" \
+              --args "$XENONRECOMP_BINARY" "$CONFIG_FILE" "$PPC_CONTEXT_HEADER" 2>&1 || echo "gdb failed to run"
             set -e
           fi
           
