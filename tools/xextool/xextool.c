@@ -22,6 +22,11 @@ typedef struct {
     uint32_t optional_header_count;
 } __attribute__((packed)) XEX2_Header;
 
+/* Constants */
+#define XEX2_MAGIC 0x58455832           /* "XEX2" in big-endian */
+#define MAX_OPTIONAL_HEADERS 100         /* Sanity check limit */
+#define DISPLAY_HEADER_LIMIT 20          /* Number of headers to display */
+
 /* Helper function to convert big-endian to host byte order */
 uint32_t be32_to_cpu(uint32_t val) {
     return ((val & 0xFF000000) >> 24) |
@@ -80,9 +85,9 @@ int analyze_xex_file(const char *filename) {
     
     /* Verify magic number */
     magic = be32_to_cpu(header.magic);
-    if (magic != 0x58455832) { /* "XEX2" */
+    if (magic != XEX2_MAGIC) {
         fprintf(stderr, "ERROR: Invalid XEX file - magic number mismatch\n");
-        fprintf(stderr, "Expected: 0x58455832 (XEX2)\n");
+        fprintf(stderr, "Expected: 0x%08X (XEX2)\n", XEX2_MAGIC);
         fprintf(stderr, "Got:      0x%08X\n", magic);
         fclose(fp);
         return 1;
@@ -97,10 +102,10 @@ int analyze_xex_file(const char *filename) {
     
     /* Read and display optional headers */
     uint32_t opt_count = be32_to_cpu(header.optional_header_count);
-    if (opt_count > 0 && opt_count < 100) {  /* Sanity check */
+    if (opt_count > 0 && opt_count < MAX_OPTIONAL_HEADERS) {  /* Sanity check */
         printf("=== Optional Headers ===\n");
         
-        for (uint32_t i = 0; i < opt_count && i < 20; i++) {
+        for (uint32_t i = 0; i < opt_count && i < DISPLAY_HEADER_LIMIT; i++) {
             uint32_t key, value;
             if (fread(&key, sizeof(key), 1, fp) != 1 ||
                 fread(&value, sizeof(value), 1, fp) != 1) {
@@ -133,8 +138,8 @@ int analyze_xex_file(const char *filename) {
             printf("\n");
         }
         
-        if (opt_count > 20) {
-            printf("  ... (%u more headers)\n", opt_count - 20);
+        if (opt_count > DISPLAY_HEADER_LIMIT) {
+            printf("  ... (%u more headers)\n", opt_count - DISPLAY_HEADER_LIMIT);
         }
     }
     
