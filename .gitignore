@@ -12,3 +12,6 @@ screenshots/
 *.zip
 xenia-extracted/
 xenia-release.zip
+
+# xextool build artifacts
+tools/xextool/xextool
