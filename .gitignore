@@ -12,3 +12,9 @@ screenshots/
 *.zip
 xenia-extracted/
 xenia-release.zip
+
+# xextool build artifacts
+tools/xextool/xextool
+
+# CodeQL artifacts
+_codeql_detected_source_root

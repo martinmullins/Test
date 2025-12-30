@@ -11,18 +11,135 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v3
 
-    - name: Set up dependencies
+    - name: Set up build dependencies
       run: |
+        echo "========================================="
+        echo "Installing build dependencies"
+        echo "========================================="
         sudo apt-get update
-        sudo apt-get install -y build-essential
+        sudo apt-get install -y build-essential gcc make
+        
+        echo ""
+        echo "Verifying installed tools:"
+        gcc --version
+        make --version
+
+    - name: Verify xextool source exists
+      run: |
+        echo "========================================="
+        echo "Verifying xextool source files"
+        echo "========================================="
+        
+        if [ ! -d "tools/xextool" ]; then
+          echo "ERROR: xextool source directory not found at 'tools/xextool'"
+          echo ""
+          echo "The xextool source code is missing from the repository."
+          echo "Please ensure the following files exist:"
+          echo "  - tools/xextool/xextool.c"
+          echo "  - tools/xextool/Makefile"
+          echo ""
+          exit 1
+        fi
+        
+        if [ ! -f "tools/xextool/xextool.c" ]; then
+          echo "ERROR: xextool source file not found at 'tools/xextool/xextool.c'"
+          exit 1
+        fi
+        
+        if [ ! -f "tools/xextool/Makefile" ]; then
+          echo "ERROR: Makefile not found at 'tools/xextool/Makefile'"
+          exit 1
+        fi
+        
+        echo "✓ xextool source directory exists"
+        echo "✓ xextool.c found"
+        echo "✓ Makefile found"
+        echo ""
+        echo "Source files:"
+        ls -lh tools/xextool/
 
     - name: Build xextool
       run: |
-        # Assuming xextool source code exists in the repo under tools/xextool
+        echo "========================================="
+        echo "Building xextool from source"
+        echo "========================================="
         cd tools/xextool
+        
+        echo "Starting build..."
         make
+        
+        if [ ! -f "xextool" ]; then
+          echo ""
+          echo "ERROR: Build failed - xextool binary was not created"
+          exit 1
+        fi
+        
+        echo ""
+        echo "✓ Build successful!"
+        ls -lh xextool
+        
+        # Make sure the binary is executable
+        chmod +x xextool
+        
+        echo ""
+        echo "Testing xextool (help output):"
+        ./xextool || true
 
-    - name: Analyze dolphin xex
+    - name: Verify sample XEX file exists
       run: |
-        # Assuming the built xextool binary is in tools/xextool
-        tools/xextool/xextool path/to/dolphin.xex
+        echo "========================================="
+        echo "Verifying sample XEX file"
+        echo "========================================="
+        
+        if [ ! -f "dolphin/dolphin.xex" ]; then
+          echo "ERROR: Sample XEX file not found at 'dolphin/dolphin.xex'"
+          echo ""
+          echo "Available files in dolphin directory:"
+          ls -la dolphin/ 2>/dev/null || echo "dolphin directory not found"
+          exit 1
+        fi
+        
+        echo "✓ Sample XEX file found: dolphin/dolphin.xex"
+        ls -lh dolphin/dolphin.xex
+
+    - name: Analyze dolphin.xex file
+      run: |
+        echo "========================================="
+        echo "Analyzing dolphin.xex with xextool"
+        echo "========================================="
+        
+        # Run xextool on the dolphin.xex file
+        tools/xextool/xextool dolphin/dolphin.xex
+        
+        EXIT_CODE=$?
+        
+        echo ""
+        if [ $EXIT_CODE -eq 0 ]; then
+          echo "✓ Analysis completed successfully!"
+        else
+          echo "ERROR: Analysis failed with exit code $EXIT_CODE"
+          exit 1
+        fi
+
+    - name: Summary
+      if: always()
+      run: |
+        echo "========================================="
+        echo "Workflow Summary"
+        echo "========================================="
+        echo ""
+        
+        if [ -f "tools/xextool/xextool" ]; then
+          echo "✓ xextool binary built successfully"
+        else
+          echo "✗ xextool binary not found"
+        fi
+        
+        if [ -f "dolphin/dolphin.xex" ]; then
+          echo "✓ Sample XEX file available"
+        else
+          echo "✗ Sample XEX file not found"
+        fi
+        
+        echo ""
+        echo "Workflow complete!"
