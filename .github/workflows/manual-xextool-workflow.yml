@@ -1,5 +1,24 @@
 name: Build and Analyze XEX
 
+# This workflow builds the xextool utility and uses it to analyze XEX (Xbox 360 Executable) files.
+# The tool extracts and displays XEX header information including encryption and compression details,
+# which are critical for understanding how to process the XEX file further.
+#
+# Key Features:
+# - Builds xextool from source with encryption detection support
+# - Analyzes XEX files to detect encryption type (None, Normal/Encrypted, or Unknown)
+# - Displays compression information (None, Basic, Normal, or Delta)
+# - Provides verbose output for detailed header analysis
+# - Logs encryption status clearly in workflow output for debugging and validation
+#
+# Workflow Triggers:
+# - Manual dispatch via GitHub Actions UI
+#
+# Outputs:
+# - Build status of xextool
+# - Complete XEX file analysis including encryption details
+# - Encryption status summary for downstream processing decisions
+
 on:
   workflow_dispatch:
 
@@ -8,28 +27,43 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+    # Step 1: Check out the repository
+    # This gives us access to the xextool source code and sample XEX files
     - name: Checkout repository
       uses: actions/checkout@v3
 
+    # Step 2: Install build dependencies
+    # xextool requires GCC and Make to compile from source
+    # These tools are typically pre-installed on ubuntu-latest, but we verify them here
     - name: Set up build dependencies
       run: |
         echo "========================================="
         echo "Installing build dependencies"
         echo "========================================="
+        # Update package lists to ensure we get the latest versions
         sudo apt-get update
+        
+        # Install essential build tools: GCC compiler and Make build system
         sudo apt-get install -y build-essential gcc make
         
         echo ""
         echo "Verifying installed tools:"
+        # Display versions to confirm successful installation
         gcc --version
         make --version
 
+    # Step 3: Verify xextool source code exists
+    # Before attempting to build, we ensure all required source files are present
+    # The xextool source consists of:
+    # - xextool.c: Main source file with XEX parsing logic
+    # - Makefile: Build configuration
     - name: Verify xextool source exists
       run: |
         echo "========================================="
         echo "Verifying xextool source files"
         echo "========================================="
         
+        # Check if the xextool directory exists
         if [ ! -d "tools/xextool" ]; then
           echo "ERROR: xextool source directory not found at 'tools/xextool'"
           echo ""
@@ -41,11 +75,13 @@ jobs:
           exit 1
         fi
         
+        # Verify the main source file exists
         if [ ! -f "tools/xextool/xextool.c" ]; then
           echo "ERROR: xextool source file not found at 'tools/xextool/xextool.c'"
           exit 1
         fi
         
+        # Verify the Makefile exists
         if [ ! -f "tools/xextool/Makefile" ]; then
           echo "ERROR: Makefile not found at 'tools/xextool/Makefile'"
           exit 1
@@ -58,6 +94,10 @@ jobs:
         echo "Source files:"
         ls -lh tools/xextool/
 
+    # Step 4: Build xextool from source
+    # Compile the xextool binary using the Makefile
+    # The Makefile uses GCC with optimization flags and C99 standard
+    # After building, we verify the binary exists and is executable
     - name: Build xextool
       run: |
         echo "========================================="
@@ -66,8 +106,10 @@ jobs:
         cd tools/xextool
         
         echo "Starting build..."
+        # Run make to compile xextool.c into the xextool binary
         make
         
+        # Verify the build was successful
         if [ ! -f "xextool" ]; then
           echo ""
           echo "ERROR: Build failed - xextool binary was not created"
@@ -78,19 +120,23 @@ jobs:
         echo "✓ Build successful!"
         ls -lh xextool
         
-        # Make sure the binary is executable
+        # Ensure the binary has execute permissions
         chmod +x xextool
         
         echo ""
         echo "Testing xextool (help output):"
-        ./xextool || true
+        # Display help to verify the binary works and show available flags
+        ./xextool --help || true
 
+    # Step 5: Verify sample XEX file exists
+    # Ensure the dolphin.xex test file is present before attempting analysis
     - name: Verify sample XEX file exists
       run: |
         echo "========================================="
         echo "Verifying sample XEX file"
         echo "========================================="
         
+        # Check if the dolphin.xex file exists in the expected location
         if [ ! -f "dolphin/dolphin.xex" ]; then
           echo "ERROR: Sample XEX file not found at 'dolphin/dolphin.xex'"
           echo ""
@@ -102,14 +148,33 @@ jobs:
         echo "✓ Sample XEX file found: dolphin/dolphin.xex"
         ls -lh dolphin/dolphin.xex
 
-    - name: Analyze dolphin.xex file
+    # Step 6: Analyze dolphin.xex file with encryption details
+    # This is the main analysis step that uses xextool with the following flags:
+    # --verbose (-v): Shows all optional headers for detailed analysis
+    # --encryption (-e): Displays encryption type and status
+    #
+    # The encryption information is critical because:
+    # - Encrypted XEX files require decryption before further processing
+    # - Different encryption types may require different decryption keys
+    # - Compression type affects how the file should be decompressed
+    #
+    # Expected output sections:
+    # 1. XEX2 Header: Basic file information
+    # 2. Optional Headers: Detailed header entries (with verbose flag)
+    # 3. FILE_FORMAT_INFO: Encryption and compression details
+    # 4. ENCRYPTION STATUS: Clear summary of encryption state
+    - name: Analyze dolphin.xex file with encryption information
       run: |
         echo "========================================="
         echo "Analyzing dolphin.xex with xextool"
+        echo "Using flags: --verbose --encryption"
         echo "========================================="
+        echo ""
         
-        # Run xextool on the dolphin.xex file
-        tools/xextool/xextool dolphin/dolphin.xex
+        # Run xextool with both verbose and encryption flags
+        # --verbose: Display all optional headers
+        # --encryption: Show detailed encryption information
+        tools/xextool/xextool --verbose --encryption dolphin/dolphin.xex
         
         EXIT_CODE=$?
         
@@ -121,6 +186,10 @@ jobs:
           exit 1
         fi
 
+    # Step 7: Summary
+    # Provide a final summary of the workflow execution
+    # This step runs even if previous steps fail (if: always())
+    # It helps verify the workflow completed successfully and all components are present
     - name: Summary
       if: always()
       run: |
@@ -129,17 +198,27 @@ jobs:
         echo "========================================="
         echo ""
         
+        # Check if xextool binary was built successfully
         if [ -f "tools/xextool/xextool" ]; then
           echo "✓ xextool binary built successfully"
         else
           echo "✗ xextool binary not found"
         fi
         
+        # Check if sample XEX file is available
         if [ -f "dolphin/dolphin.xex" ]; then
           echo "✓ Sample XEX file available"
         else
           echo "✗ Sample XEX file not found"
         fi
         
+        echo ""
+        echo "========================================="
+        echo "Key Takeaways:"
+        echo "========================================="
+        echo "- xextool now supports encryption detection"
+        echo "- Use --encryption flag to see encryption status"
+        echo "- Use --verbose flag for detailed header analysis"
+        echo "- Encrypted XEX files require decryption before use"
         echo ""
         echo "Workflow complete!"
