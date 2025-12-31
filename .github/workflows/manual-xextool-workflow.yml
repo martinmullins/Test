@@ -1,23 +1,27 @@
 name: Build and Analyze XEX
 
 # This workflow builds the xextool utility and uses it to analyze XEX (Xbox 360 Executable) files.
-# The tool extracts and displays XEX header information including encryption and compression details,
-# which are critical for understanding how to process the XEX file further.
+# It also builds xex1tool to decrypt and decompress XEX files, saving the decrypted basefile
+# back to the repository.
 #
 # Key Features:
 # - Builds xextool from source with encryption detection support
 # - Analyzes XEX files to detect encryption type (None, Normal/Encrypted, or Unknown)
 # - Displays compression information (None, Basic, Normal, or Delta)
 # - Provides verbose output for detailed header analysis
+# - Builds xex1tool from the idaxex repository
+# - Decrypts and decompresses XEX files using xex1tool
+# - Commits the decrypted basefile back to the repository
 # - Logs encryption status clearly in workflow output for debugging and validation
 #
 # Workflow Triggers:
 # - Manual dispatch via GitHub Actions UI
 #
 # Outputs:
-# - Build status of xextool
+# - Build status of xextool and xex1tool
 # - Complete XEX file analysis including encryption details
 # - Encryption status summary for downstream processing decisions
+# - Decrypted and decompressed basefile committed as dolphin_decrypted.bin
 
 on:
   workflow_dispatch:
@@ -25,6 +29,9 @@ on:
 jobs:
   build-and-analyze:
     runs-on: ubuntu-latest
+    
+    permissions:
+      contents: write
 
     steps:
     # Step 1: Check out the repository
@@ -34,6 +41,7 @@ jobs:
 
     # Step 2: Install build dependencies
     # xextool requires GCC and Make to compile from source
+    # xex1tool requires CMake for building
     # These tools are typically pre-installed on ubuntu-latest, but we verify them here
     - name: Set up build dependencies
       run: |
@@ -43,14 +51,15 @@ jobs:
         # Update package lists to ensure we get the latest versions
         sudo apt-get update
         
-        # Install essential build tools: GCC compiler and Make build system
-        sudo apt-get install -y build-essential gcc make
+        # Install essential build tools: GCC compiler, Make build system, and CMake
+        sudo apt-get install -y build-essential gcc make cmake
         
         echo ""
         echo "Verifying installed tools:"
         # Display versions to confirm successful installation
         gcc --version
         make --version
+        cmake --version
 
     # Step 3: Verify xextool source code exists
     # Before attempting to build, we ensure all required source files are present
@@ -186,7 +195,111 @@ jobs:
           exit 1
         fi
 
-    # Step 7: Summary
+    # Step 7: Clone and build xex1tool for XEX decryption/decompression
+    # xex1tool supports devkit, retail, and pre-release encryption keys
+    # It can also decompress XEX files
+    - name: Clone and build xex1tool
+      run: |
+        echo "========================================="
+        echo "Building xex1tool for XEX decryption"
+        echo "========================================="
+        cd ${{ github.workspace }}
+        echo "Cloning idaxex repository (contains xex1tool)..."
+        git clone --recursive https://github.com/emoose/idaxex.git
+        cd idaxex
+        git log -1 --oneline
+        
+        echo ""
+        echo "Building xex1tool..."
+        cd xex1tool
+        mkdir -p build
+        cd build
+        cmake ..
+        make -j$(nproc)
+        
+        echo ""
+        echo "xex1tool built successfully:"
+        ls -la xex1tool
+        echo ""
+        echo "Testing xex1tool (help output):"
+        ./xex1tool 2>&1 || true
+
+    # Step 8: Decrypt and decompress the XEX file using xex1tool
+    # This extracts the decrypted basefile (PE) from the XEX
+    # The output file will be committed back to the repository
+    - name: Decrypt and decompress XEX file
+      run: |
+        XEX_FILE="${{ github.workspace }}/dolphin/dolphin.xex"
+        XEX1TOOL="${{ github.workspace }}/idaxex/xex1tool/build/xex1tool"
+        OUTPUT_FILE="${{ github.workspace }}/dolphin/dolphin_decrypted.bin"
+        
+        echo "========================================="
+        echo "XEX Decryption and Decompression"
+        echo "========================================="
+        echo "Input XEX:    $XEX_FILE"
+        echo "Output file:  $OUTPUT_FILE"
+        echo ""
+        
+        # First, list XEX info to see encryption type
+        echo "Analyzing XEX file..."
+        "$XEX1TOOL" -l "$XEX_FILE" 2>&1 || true
+        echo ""
+        
+        # Extract the decrypted and decompressed basefile
+        echo "Extracting decrypted basefile..."
+        "$XEX1TOOL" -b "$OUTPUT_FILE" "$XEX_FILE"
+        
+        if [ -f "$OUTPUT_FILE" ]; then
+          echo ""
+          echo "✓ Decrypted basefile extracted successfully!"
+          echo "File size: $(stat -c%s "$OUTPUT_FILE") bytes"
+          ls -lh "$OUTPUT_FILE"
+          
+          # Verify the decrypted file starts with MZ (PE header)
+          MAGIC=$(xxd -l 2 -p "$OUTPUT_FILE")
+          if [ "$MAGIC" = "4d5a" ]; then
+            echo "✓ Verified: Decrypted file has valid PE header (MZ)"
+          else
+            echo "WARNING: Decrypted file does not start with MZ (got: $MAGIC)"
+            echo "This may indicate decryption issues"
+          fi
+        else
+          echo "ERROR: Failed to extract decrypted basefile"
+          exit 1
+        fi
+
+    # Step 9: Configure Git for committing
+    - name: Configure Git
+      run: |
+        git config --local user.email "github-actions[bot]@users.noreply.github.com"
+        git config --local user.name "github-actions[bot]"
+
+    # Step 10: Commit and push decrypted file
+    - name: Commit and push decrypted file
+      run: |
+        OUTPUT_FILE="dolphin/dolphin_decrypted.bin"
+        
+        echo "========================================="
+        echo "Committing decrypted file to repository"
+        echo "========================================="
+        
+        # Check if output file exists
+        if [ ! -f "$OUTPUT_FILE" ]; then
+          echo "ERROR: Decrypted file not found at $OUTPUT_FILE"
+          exit 1
+        fi
+        
+        git add "$OUTPUT_FILE"
+        
+        if git diff --staged --quiet; then
+          echo "No changes to commit (file may already exist)"
+        else
+          git commit -m "Add decrypted XEX basefile (dolphin_decrypted.bin)"
+          git push
+          echo "✓ Decrypted file committed and pushed successfully"
+        fi
+
+    # Step 11: Summary
     # Provide a final summary of the workflow execution
     # This step runs even if previous steps fail (if: always())
     # It helps verify the workflow completed successfully and all components are present
@@ -205,6 +318,13 @@ jobs:
           echo "✗ xextool binary not found"
         fi
         
+        # Check if xex1tool binary was built successfully
+        if [ -f "idaxex/xex1tool/build/xex1tool" ]; then
+          echo "✓ xex1tool binary built successfully"
+        else
+          echo "✗ xex1tool binary not found"
+        fi
+        
         # Check if sample XEX file is available
         if [ -f "dolphin/dolphin.xex" ]; then
           echo "✓ Sample XEX file available"
@@ -212,13 +332,21 @@ jobs:
           echo "✗ Sample XEX file not found"
         fi
         
+        # Check if decrypted file was created
+        if [ -f "dolphin/dolphin_decrypted.bin" ]; then
+          echo "✓ Decrypted file created"
+        else
+          echo "✗ Decrypted file not found"
+        fi
+        
         echo ""
         echo "========================================="
         echo "Key Takeaways:"
         echo "========================================="
-        echo "- xextool now supports encryption detection"
-        echo "- Use --encryption flag to see encryption status"
-        echo "- Use --verbose flag for detailed header analysis"
-        echo "- Encrypted XEX files require decryption before use"
+        echo "- xextool analyzes XEX files and shows encryption status"
+        echo "- xex1tool decrypts and decompresses XEX files"
+        echo "- Decrypted basefile saved as dolphin_decrypted.bin"
+        echo "- Use --encryption flag with xextool to see encryption status"
+        echo "- Use --verbose flag with xextool for detailed header analysis"
         echo ""
         echo "Workflow complete!"
