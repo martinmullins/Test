@@ -222,6 +222,7 @@ jobs:
         ls -la xex1tool
         echo ""
         echo "Testing xex1tool (help output):"
+        # xex1tool returns non-zero when called without arguments, but we just want to verify it runs
         ./xex1tool 2>&1 || true
 
     # Step 8: Decrypt and decompress the XEX file using xex1tool
@@ -295,8 +296,15 @@ jobs:
           echo "No changes to commit (file may already exist)"
         else
           git commit -m "Add decrypted XEX basefile (dolphin_decrypted.bin)"
-          git push
-          echo "✓ Decrypted file committed and pushed successfully"
+          
+          # Push changes with error handling
+          if git push; then
+            echo "✓ Decrypted file committed and pushed successfully"
+          else
+            echo "ERROR: Failed to push changes to repository"
+            echo "This may be due to network issues or permission problems"
+            exit 1
+          fi
         fi
 
     # Step 11: Summary
