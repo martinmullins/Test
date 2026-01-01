@@ -1,17 +1,17 @@
 # XenonRecomp Workflow
 # 
-# This workflow automates the process of decompiling Xbox 360 executable (XEX) files
+# This workflow automates the process of decompiling Xbox 360 binaries
 # using the XenonRecomp tool, which converts PowerPC assembly to C++ source code.
 #
 # Purpose:
-# - Decompile XEX files to generate human-readable C++ code
+# - Decompile decrypted Xbox 360 binaries to generate human-readable C++ code
 # - Detect and handle jump tables for better decompilation quality
 # - Commit generated C++ files back to the repository
 #
 # Workflow Steps:
 # 1. Set up build environment (Clang 18, CMake)
 # 2. Clone and build XenonRecomp from source
-# 3. Verify input XEX file exists
+# 3. Verify input binary file exists
 # 4. Run XenonAnalyse to detect jump tables (optional, may not find any)
 # 5. Create configuration file with paths and optimization settings
 # 6. Run XenonRecomp to generate C++ files
@@ -19,28 +19,28 @@
 #
 # Troubleshooting:
 # - If XenonRecomp crashes with segmentation fault (exit code 139):
-#   * The XEX file may be incompatible or use unsupported features
+#   * The binary file may be incompatible or use unsupported features
 #   * Check the workflow logs for detailed error messages and core dumps
 #   * Partial output may still be generated and committed
 # - If no files are generated:
-#   * Verify the XEX file path is correct
-#   * Check that the XEX file is a valid Xbox 360 executable
-#   * Review XenonRecomp documentation for supported XEX formats
+#   * Verify the binary file path is correct
+#   * Check that the binary file is a valid decrypted Xbox 360 PE binary
+#   * Review XenonRecomp documentation for supported binary formats
 # - Configuration options can be adjusted in the "Create XenonRecomp configuration file" step
 #
 # Manual Triggering:
 # - Navigate to Actions → XenonRecomp Workflow → Run workflow
-# - Specify the XEX file path (default: dolphin/dolphin.xex)
+# - Specify the binary file path (default: dolphin/dolphin_decrypted.bin)
 # - Specify the output directory (default: generated_cpp)
 name: XenonRecomp Workflow
 
 on:
   workflow_dispatch:
     inputs:
-      xex_file_path:
-        description: 'Path to the dolphin.xex file (relative to repository root)'
+      binary_file_path:
+        description: 'Path to the decrypted binary file (relative to repository root)'
         required: false
-        default: 'dolphin/dolphin.xex'
+        default: 'dolphin/dolphin_decrypted.bin'
       output_directory:
         description: 'Directory for generated .cpp files'
         required: false
@@ -84,29 +84,6 @@ jobs:
           cd XenonRecomp
           git log -1 --oneline
       
-      # Clone and build xex1tool for XEX decryption
-      # xex1tool supports devkit, retail, and pre-release encryption keys
-      # This is needed because dolphin.xex is encrypted with a devkit key,
-      # which XenonRecomp doesn't support natively
-      - name: Clone and build xex1tool
-        run: |
-          cd ${{ github.workspace }}
-          echo "Cloning idaxex repository (contains xex1tool)..."
-          git clone --recursive https://github.com/emoose/idaxex.git
-          cd idaxex
-          git log -1 --oneline
-          
-          echo "Building xex1tool..."
-          cd xex1tool
-          mkdir -p build
-          cd build
-          cmake ..
-          make -j$(nproc)
-          
-          echo "xex1tool built successfully:"
-          ls -la xex1tool
-          ./xex1tool 2>&1 || true
-      
       # Build the XenonRecomp tool from source
       # This compiles the XenonRecomp, XenonAnalyse, and XenonUtils components
       # Using RelWithDebInfo to get debug symbols for better crash diagnostics
@@ -126,177 +103,36 @@ jobs:
           echo "Built binaries:"
           ls -la
       
-      # Verify that the XEX file exists in the repository
-      # The XEX file must be committed to the repository before running this workflow
-      # Default path: dolphin/dolphin.xex
-      - name: Verify XEX file exists
+      # Verify that the binary file exists in the repository
+      # The binary file must be committed to the repository before running this workflow
+      # Default path: dolphin/dolphin_decrypted.bin
+      - name: Verify binary file exists
         run: |
-          XEX_FILE="${{ github.workspace }}/${{ inputs.xex_file_path }}"
-          echo "Checking for XEX file at: $XEX_FILE"
+          BINARY_FILE="${{ github.workspace }}/${{ inputs.binary_file_path }}"
+          echo "Checking for binary file at: $BINARY_FILE"
           
-          if [ ! -f "$XEX_FILE" ]; then
-            echo "ERROR: XEX file not found at $XEX_FILE"
+          if [ ! -f "$BINARY_FILE" ]; then
+            echo "ERROR: Binary file not found at $BINARY_FILE"
             echo ""
-            echo "Please ensure the XEX file is committed to the repository at:"
-            echo "  ${{ inputs.xex_file_path }}"
+            echo "Please ensure the decrypted binary file is committed to the repository at:"
+            echo "  ${{ inputs.binary_file_path }}"
             echo ""
             echo "Available files in repository:"
-            find . -name "*.xex" -o -name "*.XEX" 2>/dev/null || echo "No XEX files found"
+            find . -name "*.bin" 2>/dev/null || echo "No .bin files found"
             exit 1
           fi
           
-          echo "XEX file found: $XEX_FILE"
-          echo "File size: $(stat -c%s "$XEX_FILE" 2>/dev/null || echo "unknown") bytes"
-          ls -lh "$XEX_FILE"
-      
-      # Parse and validate XEX headers to help diagnose any issues
-      # This step dumps the XEX header structure to help debug crashes
-      - name: Validate XEX file headers
-        run: |
-          XEX_FILE="${{ github.workspace }}/${{ inputs.xex_file_path }}"
-          echo "========================================="
-          echo "XEX Header Analysis"
-          echo "========================================="
+          echo "Binary file found: $BINARY_FILE"
+          echo "File size: $(stat -c%s "$BINARY_FILE" 2>/dev/null || echo "unknown") bytes"
+          ls -lh "$BINARY_FILE"
           
-          python3 << PYEOF
-          import struct
-          import hashlib
-
-          with open('$XEX_FILE', 'rb') as f:
-              data = f.read()
-
-          print(f"File size: {len(data)} bytes")
-          print(f"SHA256: {hashlib.sha256(data).hexdigest()}")
-          print()
-
-          # Check magic
-          magic = data[0:4]
-          if magic != b'XEX2':
-              print(f"ERROR: Invalid magic bytes: {magic.hex()} (expected 58455832 for XEX2)")
-              exit(1)
-
-          # Parse XEX2 header
-          module_flags = struct.unpack('>I', data[4:8])[0]
-          header_size = struct.unpack('>I', data[8:12])[0]
-          security_offset = struct.unpack('>I', data[16:20])[0]
-          header_count = struct.unpack('>I', data[20:24])[0]
-
-          print("=== XEX2 Header ===")
-          print(f"Magic: XEX2")
-          print(f"Module Flags: 0x{module_flags:08X}")
-          print(f"Header Size: {header_size} (0x{header_size:X})")
-          print(f"Security Offset: {security_offset} (0x{security_offset:X})")
-          print(f"Header Count: {header_count}")
-
-          # Parse optional headers
-          print(f"\n=== Optional Headers ({header_count} total) ===")
-          opt_header_offset = 24
-          file_format_info_offset = None
-          
-          for i in range(header_count):
-              key = struct.unpack('>I', data[opt_header_offset:opt_header_offset+4])[0]
-              value = struct.unpack('>I', data[opt_header_offset+4:opt_header_offset+8])[0]
-              
-              key_names = {
-                  0x000003FF: "FILE_FORMAT_INFO",
-                  0x000005FF: "DELTA_PATCH_DESCRIPTOR",
-                  0x00010100: "ENTRY_POINT",
-                  0x00010201: "IMAGE_BASE_ADDRESS",
-                  0x000103FF: "IMPORT_LIBRARIES",
-              }
-              
-              key_name = key_names.get(key, f"0x{key:08X}")
-              print(f"  [{i}] {key_name}: 0x{value:08X}")
-              
-              if key == 0x000003FF:
-                  file_format_info_offset = value
-              if key == 0x000005FF:
-                  print("    *** WARNING: DELTA_PATCH_DESCRIPTOR found - this XEX may require a base file ***")
-              
-              opt_header_offset += 8
-
-          # Parse FILE_FORMAT_INFO if found
-          if file_format_info_offset:
-              info_size = struct.unpack('>I', data[file_format_info_offset:file_format_info_offset+4])[0]
-              encryption_type = struct.unpack('>H', data[file_format_info_offset+4:file_format_info_offset+6])[0]
-              compression_type = struct.unpack('>H', data[file_format_info_offset+6:file_format_info_offset+8])[0]
-              
-              compression_names = {0: "NONE", 1: "BASIC", 2: "NORMAL", 3: "DELTA"}
-              encryption_names = {0: "NONE", 1: "NORMAL"}
-              
-              print(f"\n=== FILE_FORMAT_INFO ===")
-              print(f"  Info Size: {info_size}")
-              print(f"  Encryption: {encryption_names.get(encryption_type, 'UNKNOWN')} ({encryption_type})")
-              print(f"  Compression: {compression_names.get(compression_type, 'UNKNOWN')} ({compression_type})")
-              
-              if compression_type == 3:
-                  print("\n  *** ERROR: DELTA compression is NOT supported by XenonRecomp! ***")
-                  print("  This XEX requires a base XEX file to decompress.")
-                  exit(1)
-              
-              if compression_type > 2:
-                  print(f"\n  *** WARNING: Unknown compression type {compression_type} ***")
-
-          # Parse security info
-          print(f"\n=== Security Info ===")
-          sec_header_size = struct.unpack('>I', data[security_offset:security_offset+4])[0]
-          image_size = struct.unpack('>I', data[security_offset+4:security_offset+8])[0]
-          print(f"  Security Header Size: {sec_header_size}")
-          print(f"  Image Size: {image_size} (0x{image_size:X})")
-
-          print("\n=== First 64 bytes (hex) ===")
-          print(data[:64].hex())
-          
-          print("\nXEX header validation passed!")
-          PYEOF
-      
-      # Decrypt the XEX file using xex1tool
-      # This step extracts the decrypted basefile (PE) from the XEX
-      # xex1tool supports devkit, retail, and pre-release encryption keys
-      # The decrypted file will be used by XenonRecomp instead of the encrypted XEX
-      - name: Decrypt XEX file using xex1tool
-        id: decrypt_xex
-        run: |
-          XEX_FILE="${{ github.workspace }}/${{ inputs.xex_file_path }}"
-          XEX1TOOL="${{ github.workspace }}/idaxex/xex1tool/build/xex1tool"
-          DECRYPTED_DIR="${{ github.workspace }}/decrypted"
-          DECRYPTED_FILE="$DECRYPTED_DIR/basefile.bin"
-          
-          echo "========================================="
-          echo "XEX Decryption using xex1tool"
-          echo "========================================="
-          
-          # Create output directory for decrypted file
-          mkdir -p "$DECRYPTED_DIR"
-          
-          # First, list XEX info to see encryption type
-          echo "Analyzing XEX file..."
-          "$XEX1TOOL" -l "$XEX_FILE" 2>&1 || true
-          echo ""
-          
-          # Extract the decrypted basefile
-          echo "Extracting decrypted basefile..."
-          "$XEX1TOOL" -b "$DECRYPTED_FILE" "$XEX_FILE"
-          
-          if [ -f "$DECRYPTED_FILE" ]; then
-            echo "Decrypted basefile extracted successfully!"
-            echo "File size: $(stat -c%s "$DECRYPTED_FILE") bytes"
-            
-            # Verify the decrypted file starts with MZ (PE header)
-            MAGIC=$(xxd -l 2 -p "$DECRYPTED_FILE")
-            if [ "$MAGIC" = "4d5a" ]; then
-              echo "Verified: Decrypted file has valid PE header (MZ)"
-            else
-              echo "WARNING: Decrypted file does not start with MZ (got: $MAGIC)"
-              echo "This may indicate decryption issues"
-            fi
-            
-            # Output the path for use in later steps
-            echo "decrypted_file=$DECRYPTED_FILE" >> $GITHUB_OUTPUT
-            echo "decrypted_dir=$DECRYPTED_DIR" >> $GITHUB_OUTPUT
+          # Verify it's a PE file (starts with MZ magic bytes)
+          MAGIC=$(xxd -l 2 -p "$BINARY_FILE")
+          if [ "$MAGIC" = "4d5a" ]; then
+            echo "✓ Verified: File has valid PE header (MZ)"
           else
-            echo "ERROR: Failed to extract decrypted basefile"
-            exit 1
+            echo "WARNING: File does not start with MZ (got: $MAGIC)"
+            echo "This may not be a valid PE binary file"
           fi
       
       - name: Create output directory
@@ -305,19 +141,19 @@ jobs:
           mkdir -p "$OUTPUT_DIR"
           echo "Output directory created: $OUTPUT_DIR"
       
-      # XenonAnalyse detects jump tables in the XEX file
+      # XenonAnalyse detects jump tables in the binary file
       # Jump tables are used for optimizing switch statements in the decompiled code
-      # This step may not find jump tables, which is acceptable for many XEX files
+      # This step may not find jump tables, which is acceptable for many binaries
       - name: Run XenonAnalyse to detect jump tables
         id: xenonanalyse
         run: |
           cd ${{ github.workspace }}/XenonRecomp/build
-          XEX_FILE="${{ github.workspace }}/${{ inputs.xex_file_path }}"
+          BINARY_FILE="${{ github.workspace }}/${{ inputs.binary_file_path }}"
           JUMP_TABLES_OUTPUT="${{ github.workspace }}/jump_tables.toml"
           XENONANALYSE_BINARY="./XenonAnalyse/XenonAnalyse"
           
           echo "Running XenonAnalyse..."
-          echo "XEX File: $XEX_FILE"
+          echo "Binary File: $BINARY_FILE"
           echo "Output: $JUMP_TABLES_OUTPUT"
           echo "XenonAnalyse binary: $XENONANALYSE_BINARY"
           
@@ -333,7 +169,7 @@ jobs:
           
           # XenonAnalyse may fail if no jump tables are detected, which is acceptable
           set +e
-          "$XENONANALYSE_BINARY" "$XEX_FILE" "$JUMP_TABLES_OUTPUT"
+          "$XENONANALYSE_BINARY" "$BINARY_FILE" "$JUMP_TABLES_OUTPUT"
           EXIT_CODE=$?
           set -e
           
@@ -359,51 +195,50 @@ jobs:
       # IMPORTANT: XenonRecomp expects RELATIVE paths in the config file!
       # It concatenates config.directoryPath + config.filePath internally,
       # so using absolute paths would create invalid paths like:
-      # /home/runner/work/Test/Test//home/runner/work/Test/Test/dolphin/dolphin.xex
+      # /home/runner/work/Test/Test//home/runner/work/Test/Test/dolphin/dolphin_decrypted.bin
       # 
-      # NOTE: We now use the DECRYPTED basefile instead of the encrypted XEX!
-      # The decrypted file was extracted by xex1tool in the previous step.
+      # NOTE: We use the pre-decrypted binary file directly.
       # Only includes switch_table_file_path if jump tables were detected
       - name: Create XenonRecomp configuration file
         run: |
           # Use RELATIVE paths for XenonRecomp config (it will prepend directoryPath)
-          # Point to the decrypted basefile instead of the encrypted XEX
-          DECRYPTED_FILE_RELATIVE="decrypted/basefile.bin"
+          # Point to the pre-decrypted binary file
+          BINARY_FILE_RELATIVE="${{ inputs.binary_file_path }}"
           OUTPUT_DIR_RELATIVE="${{ inputs.output_directory }}"
           JUMP_TABLES_FILE_RELATIVE="jump_tables.toml"
           CONFIG_FILE="${{ github.workspace }}/xenonrecomp_config.toml"
           HAS_JUMP_TABLES="${{ steps.xenonanalyse.outputs.has_jump_tables }}"
           
           # Absolute paths for verification only
-          DECRYPTED_FILE_ABSOLUTE="${{ steps.decrypt_xex.outputs.decrypted_file }}"
+          BINARY_FILE_ABSOLUTE="${{ github.workspace }}/${{ inputs.binary_file_path }}"
           OUTPUT_DIR_ABSOLUTE="${{ github.workspace }}/${{ inputs.output_directory }}"
           JUMP_TABLES_FILE_ABSOLUTE="${{ github.workspace }}/jump_tables.toml"
           
           echo "Creating configuration file with RELATIVE paths..."
-          echo "Using DECRYPTED basefile instead of encrypted XEX"
+          echo "Using pre-decrypted binary file"
           echo "Has jump tables: $HAS_JUMP_TABLES"
           echo ""
           echo "Relative paths (for config):"
-          echo "  file_path: $DECRYPTED_FILE_RELATIVE"
+          echo "  file_path: $BINARY_FILE_RELATIVE"
           echo "  out_directory_path: $OUTPUT_DIR_RELATIVE"
           echo "  switch_table_file_path: $JUMP_TABLES_FILE_RELATIVE"
           echo ""
           echo "Absolute paths (for verification):"
-          echo "  Decrypted file: $DECRYPTED_FILE_ABSOLUTE"
+          echo "  Binary file: $BINARY_FILE_ABSOLUTE"
           echo "  Output dir: $OUTPUT_DIR_ABSOLUTE"
           
-          # Verify decrypted file exists
-          if [ ! -f "$DECRYPTED_FILE_ABSOLUTE" ]; then
-            echo "ERROR: Decrypted file not found at $DECRYPTED_FILE_ABSOLUTE"
+          # Verify binary file exists
+          if [ ! -f "$BINARY_FILE_ABSOLUTE" ]; then
+            echo "ERROR: Binary file not found at $BINARY_FILE_ABSOLUTE"
             exit 1
           fi
-          echo "Decrypted file exists: YES"
+          echo "Binary file exists: YES"
           
           # Create the [main] section with all config options
           # Note: XenonRecomp expects ALL config keys inside [main], not in separate tables
           {
             printf '[main]\n'
-            printf 'file_path = "%s"\n' "$DECRYPTED_FILE_RELATIVE"
+            printf 'file_path = "%s"\n' "$BINARY_FILE_RELATIVE"
             printf 'out_directory_path = "%s"\n' "$OUTPUT_DIR_RELATIVE"
           } > "$CONFIG_FILE"
           
@@ -433,14 +268,14 @@ jobs:
           cat "$CONFIG_FILE"
           echo ""
           echo "Verifying file paths in configuration..."
-          echo "XEX file exists: $(test -f "$XEX_FILE" && echo "YES" || echo "NO")"
-          echo "Output directory exists: $(test -d "$OUTPUT_DIR" && echo "YES" || echo "NO")"
+          echo "Binary file exists: $(test -f "$BINARY_FILE_ABSOLUTE" && echo "YES" || echo "NO")"
+          echo "Output directory exists: $(test -d "$OUTPUT_DIR_ABSOLUTE" && echo "YES" || echo "NO")"
           if [ "$HAS_JUMP_TABLES" = "true" ]; then
-            echo "Jump tables file exists: $(test -f "$JUMP_TABLES_FILE" && echo "YES" || echo "NO")"
+            echo "Jump tables file exists: $(test -f "$JUMP_TABLES_FILE_ABSOLUTE" && echo "YES" || echo "NO")"
           fi
       
-      # Execute XenonRecomp to decompile the XEX file
-      # This step may fail with segmentation faults if the XEX file has compatibility issues
+      # Execute XenonRecomp to decompile the binary file
+      # This step may fail with segmentation faults if the binary file has compatibility issues
       # Enhanced with detailed logging and error handling for troubleshooting
       - name: Run XenonRecomp to generate C++ files
         run: |
@@ -545,8 +380,8 @@ jobs:
             echo "ERROR: XenonRecomp crashed with segmentation fault (exit code 139)"
             echo ""
             echo "Troubleshooting Information:"
-            echo "- The XEX file may be incompatible or corrupted"
-            echo "- The XenonRecomp binary may have issues with this specific XEX format"
+            echo "- The binary file may be incompatible or corrupted"
+            echo "- The XenonRecomp binary may have issues with this specific binary format"
             echo "- Check if there are core dump files for detailed debugging"
             echo ""
             
@@ -576,7 +411,7 @@ jobs:
           else
             echo "ERROR: XenonRecomp failed with exit code $EXIT_CODE"
             echo ""
-            echo "The XEX file may require additional configuration or analysis"
+            echo "The binary file may require additional configuration or analysis"
             echo "Please check the XenonRecomp documentation for more details"
             echo ""
             
