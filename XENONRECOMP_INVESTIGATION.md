@@ -1,5 +1,17 @@
 # XenonRecomp Binary Compatibility Investigation
 
+## Executive Summary
+
+**Problem**: XenonRecomp crashes with segmentation fault (exit code 139) when processing `dolphin_decrypted.bin`.
+
+**Root Cause**: The source XEX file (`dolphin.xex`) is both encrypted (Type 1: Normal) AND compressed (Type 1: Basic). While the binary has been decrypted, there may be incomplete decompression causing XenonRecomp to crash.
+
+**Immediate Action Required**: Verify that the extracted basefile is fully decompressed. The current `dolphin_decrypted.bin` may still contain compressed sections or compression metadata that XenonRecomp cannot process.
+
+**Recommended Fix**: Re-extract the basefile with verified decompression or manually decompress any remaining compressed sections before feeding to XenonRecomp.
+
+---
+
 ## Problem Statement
 The xenon recomp binary does not like the decrypted binary and crashes with segmentation fault (exit code 139).
 
@@ -27,52 +39,107 @@ But then crashes at:
 
 ## Root Cause Analysis
 
+### XEX File Status (Confirmed via xextool)
+The source XEX file (`dolphin/dolphin.xex`) has:
+- **Encryption Type**: 1 (Normal/Encrypted) - ✓ Requires decryption
+- **Compression Type**: 1 (Basic) - ✓ Requires decompression
+
+### Current Binary Status
+The `dolphin_decrypted.bin` file was extracted using `xex1tool -b` which should:
+- Decrypt the XEX file ✓
+- Decompress the basefile ✓
+- Extract the PE executable ✓
+
 XenonRecomp is a PowerPC to C++ recompiler that expects specific characteristics in the PE binary:
 
 1. **Big-endian PowerPC executable format**: ✓ (confirmed by `file` output)
 2. **Valid PE headers**: ✓ (MZ at start, PE signature present)
-3. **Xbox 360 executable sections**: Likely present, but structure may be incompatible
+3. **Fully decompressed**: ? (needs verification)
+4. **Xbox 360 executable sections**: Likely present, but structure may be incompatible
 
-The issue is likely one of the following:
+### Primary Hypothesis: Decompression Issue
+The most likely cause is that the basefile extraction did not fully decompress the binary, leaving compressed sections that XenonRecomp cannot process. The xex1tool `-b` flag is supposed to handle both decryption and decompression, but there may be an issue with:
 
-### Hypothesis 1: Binary Format Issue
-XenonRecomp may expect a "raw" basefile format (just the executable code) rather than a full PE executable with all headers and sections. However, the workflow explicitly checks for PE headers, so this seems unlikely.
+1. **Incomplete decompression**: Some sections remain compressed
+2. **Compression format incompatibility**: XenonRecomp doesn't recognize the decompression format used
+3. **Residual compression headers**: Compression metadata still present in the binary
 
-### Hypothesis 2: Section Alignment or Structure
+### Secondary Hypotheses
+
+#### Hypothesis 2: Section Alignment or Structure
 The extracted PE file may have section alignments or structures that XenonRecomp cannot handle. Xbox 360 PE files can have different section layouts than standard PE files.
 
-### Hypothesis 3: Compression/Encryption Remnants  
-Even though the file is "decrypted", there may be residual XEX structures or compressed sections that XenonRecomp cannot process.
+#### Hypothesis 3: XenonRecomp Input Format Mismatch
+XenonRecomp may expect a specific "preprocessed" format rather than a raw PE executable. The tool may require:
+- Specific section ordering
+- Stripped debug information
+- Aligned memory addresses
+- Specific entry point format
 
-### Hypothesis 4: XenonRecomp Bug or Limitation
-XenonRecomp may have bugs or limitations with certain types of Xbox 360 executables. The tool is experimental and may not handle all binary variations.
+#### Hypothesis 4: XenonRecomp Bug or Limitation  
+XenonRecomp may have bugs or limitations with certain types of Xbox 360 executables. The tool is experimental and may not handle all binary variations correctly.
 
 ## Recommended Solutions
 
-### Solution 1: Use Different Extraction Method
-Instead of using `xex1tool -b` to extract the basefile, try using a different extraction method that provides a more "raw" binary format that XenonRecomp expects.
+### Solution 1: Verify Complete Decompression (PRIMARY)
+The first step is to verify that the dolphin_decrypted.bin file is fully decompressed.
 
-**Action**: Research XenonRecomp documentation and examples to understand the exact input format it requires.
+**Action Steps**:
+1. Check if `xex1tool -b` fully decompresses the basefile
+2. Try using explicit decompression flags or different extraction method
+3. Verify the extracted file has no compression markers/headers
+4. Compare file sizes to ensure full expansion
 
-### Solution 2: Pre-process the Binary
-Strip unnecessary PE headers/sections and create a minimal PE file that contains only the executable code sections that XenonRecomp needs.
+**Implementation**:
+```bash
+# Re-extract with explicit decompression verification
+xex1tool -b dolphin_decrypted_v2.bin dolphin/dolphin.xex
 
-**Implementation**: Create a tool to:
-1. Parse the PE headers
-2. Extract only the `.text` and essential sections
-3. Rebuild a minimal PE file with proper alignments
+# Or try decompress flag if available
+xex1tool -d -b dolphin_decrypted_v2.bin dolphin/dolphin.xex
 
-### Solution 3: Fix XenonRecomp
-If the issue is a bug in XenonRecomp itself, we could:
-1. Run XenonRecomp with a debugger to get the exact crash location
-2. Submit a bug report with the dolphin_decrypted.bin file as a test case
-3. Fork and fix XenonRecomp if needed
+# Verify no compression signatures remain
+xxd dolphin_decrypted_v2.bin | grep -i "compress\|lz\|zlib"
+```
 
-### Solution 4: Alternative Decompiler
-Consider using an alternative PowerPC decompiler that may be more robust:
-- Ghidra with PowerPC support
-- IDA Pro with PowerPC plugin
-- radare2/rizin with PowerPC architecture support
+### Solution 2: Use Alternative Extraction Tool
+Try using a different tool that guarantees full decompression:
+
+**Options**:
+- **xextool** (if it supports extraction)
+- **xorloser's xextool** (different from our analysis tool)
+- **Xbox 360 SDK tools** (if available)
+- **Manual decompression** using known Xbox 360 compression libraries
+
+### Solution 3: Pre-process the Binary
+Create a tool to validate and fix the extracted binary:
+
+**Implementation**: Create a Python/C tool to:
+1. Parse the PE headers thoroughly
+2. Check each section for compression markers
+3. Decompress any remaining compressed sections
+4. Rebuild a clean PE file with proper section alignments
+5. Validate against XenonRecomp requirements
+
+### Solution 4: Contact Tool Maintainers
+Engage with both tool maintainers:
+
+**xex1tool/idaxex**:
+- Verify that `-b` flag fully decompresses
+- Request documentation on exact output format
+- Report if there's a decompression bug
+
+**XenonRecomp**:
+- Provide dolphin_decrypted.bin as a test case
+- Request documentation on expected input format
+- Get detailed requirements for PE structure
+
+### Solution 5: Alternative Decompiler (FALLBACK)
+If XenonRecomp cannot be fixed, consider alternatives:
+- **Ghidra** with PowerPC support
+- **IDA Pro** with PowerPC plugin  
+- **radare2/rizin** with PowerPC architecture
+- **RetDec** with PowerPC backend
 
 ## Next Steps
 
