@@ -8,7 +8,7 @@
 
 **Immediate Action Required**: Verify that the extracted basefile is fully decompressed. The current `dolphin_decrypted.bin` may still contain compressed sections or compression metadata that XenonRecomp cannot process.
 
-**Recommended Fix**: Re-extract the basefile with verified decompression or manually decompress any remaining compressed sections before feeding to XenonRecomp.
+**Recommended Fix**: Re-extract the basefile with verified decompression or manually decompress any remaining compressed sections before feeding to Xenon Recomp.
 
 ---
 
@@ -93,10 +93,8 @@ The first step is to verify that the dolphin_decrypted.bin file is fully decompr
 **Implementation**:
 ```bash
 # Re-extract with explicit decompression verification
-xex1tool -b dolphin_decrypted_v2.bin dolphin/dolphin.xex
-
-# Or try decompress flag if available
-xex1tool -d -b dolphin_decrypted_v2.bin dolphin/dolphin.xex
+# Note: Verify the correct argument order for your version of xex1tool
+xex1tool -b dolphin/dolphin.xex dolphin_decrypted_v2.bin
 
 # Verify no compression signatures remain
 xxd dolphin_decrypted_v2.bin | grep -i "compress\|lz\|zlib"
@@ -106,10 +104,11 @@ xxd dolphin_decrypted_v2.bin | grep -i "compress\|lz\|zlib"
 Try using a different tool that guarantees full decompression:
 
 **Options**:
-- **xextool** (if it supports extraction)
-- **xorloser's xextool** (different from our analysis tool)
+- **xorloser's Xbox 360 xextool** (different from our xextool analysis tool - specialized for extraction)
 - **Xbox 360 SDK tools** (if available)
 - **Manual decompression** using known Xbox 360 compression libraries
+
+**Note**: Our xextool (in `tools/xextool/`) is an analysis tool that reads XEX headers. For extraction, you need xex1tool from the idaxex project or similar tools.
 
 ### Solution 3: Pre-process the Binary
 Create a tool to validate and fix the extracted binary:
